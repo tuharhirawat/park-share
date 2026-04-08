@@ -20,6 +20,8 @@ const vehicleOptions = [
 const featureOptions = ["CCTV", "Covered", "Gated", "Guard", "Well-Lit", "EV Charging", "24/7 Access"];
 
 const HostListingPage = () => {
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
