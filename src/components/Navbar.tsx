@@ -43,9 +43,10 @@ const Navbar = () => {
         <div className="md:hidden bg-background border-b border-border px-4 pb-4 space-y-3">
           <Link to="/search" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>Find Parking</Link>
           <Link to="/host" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>List Your Space</Link>
-          <div className="flex gap-2 pt-2">
-            <Button variant="outline" size="sm" className="flex-1">Log In</Button>
-            <Button size="sm" className="flex-1">Sign Up</Button>
+          <div className="flex gap-2 pt-2 items-center">
+            <ThemeToggle />
+            <Link to="/login" className="flex-1" onClick={() => setIsOpen(false)}><Button variant="outline" size="sm" className="w-full">Log In</Button></Link>
+            <Link to="/signup" className="flex-1" onClick={() => setIsOpen(false)}><Button size="sm" className="w-full">Sign Up</Button></Link>
           </div>
         </div>
       )}
