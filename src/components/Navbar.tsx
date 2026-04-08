@@ -29,8 +29,9 @@ const Navbar = () => {
           <Link to="/" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
             How It Works
           </Link>
-          <Button variant="outline" size="sm">Log In</Button>
-          <Button size="sm">Sign Up</Button>
+          <ThemeToggle />
+          <Link to="/login"><Button variant="outline" size="sm">Log In</Button></Link>
+          <Link to="/signup"><Button size="sm">Sign Up</Button></Link>
         </div>
 
         <button className="md:hidden" onClick={() => setIsOpen(!isOpen)}>
