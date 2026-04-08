@@ -8,11 +8,10 @@ import { toast } from "sonner";
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const { user, loading } = useAuth();
+  const { user, loading, signOut } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
-    const { signOut } = useAuth();
     await signOut();
     toast.success("Logged out successfully");
     navigate("/");
