@@ -5,9 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { Car, Bike, MapPin, IndianRupee, Shield, Clock } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { useNavigate } from "react-router-dom";
 
 const vehicleOptions = [
   { id: "bike", label: "Bike", icon: Bike },
@@ -18,6 +20,8 @@ const vehicleOptions = [
 const featureOptions = ["CCTV", "Covered", "Gated", "Guard", "Well-Lit", "EV Charging", "24/7 Access"];
 
 const HostListingPage = () => {
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
@@ -26,6 +30,13 @@ const HostListingPage = () => {
   const [vehicles, setVehicles] = useState<string[]>([]);
   const [features, setFeatures] = useState<string[]>([]);
   const [description, setDescription] = useState("");
+
+  useEffect(() => {
+    if (!loading && !user) {
+      toast.error("Please log in to list your space");
+      navigate("/login");
+    }
+  }, [user, loading, navigate]);
 
   const toggleItem = (arr: string[], setArr: (v: string[]) => void, item: string) => {
     setArr(arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item]);
