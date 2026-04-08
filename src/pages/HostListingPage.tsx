@@ -31,6 +31,13 @@ const HostListingPage = () => {
   const [features, setFeatures] = useState<string[]>([]);
   const [description, setDescription] = useState("");
 
+  useEffect(() => {
+    if (!loading && !user) {
+      toast.error("Please log in to list your space");
+      navigate("/login");
+    }
+  }, [user, loading, navigate]);
+
   const toggleItem = (arr: string[], setArr: (v: string[]) => void, item: string) => {
     setArr(arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item]);
   };
