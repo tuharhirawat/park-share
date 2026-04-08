@@ -6,12 +6,43 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Star, MapPin, Shield, Clock, Car, Bike, ArrowLeft, Navigation } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const SpaceDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const space = mockSpaces.find(s => s.id === id);
   const [hours, setHours] = useState(2);
+  const [booking, setBooking] = useState(false);
+
+  const handleBookNow = async () => {
+    if (!user) {
+      toast.info("Please log in to book a space");
+      navigate("/login");
+      return;
+    }
+    if (!space) return;
+    setBooking(true);
+    const totalPrice = Math.round(space.pricePerHour * hours * 1.1);
+    const { error } = await supabase.from("bookings").insert({
+      user_id: user.id,
+      space_id: space.id,
+      space_title: space.title,
+      space_address: space.address,
+      space_city: space.city,
+      hours,
+      total_price: totalPrice,
+    });
+    setBooking(false);
+    if (error) {
+      toast.error("Booking failed. Please try again.");
+    } else {
+      toast.success("Booking confirmed! 🎉");
+    }
+  };
 
   if (!space) {
     return (
@@ -108,9 +139,9 @@ const SpaceDetail = () => {
                   </div>
                 </div>
 
-                <Button className="w-full rounded-xl gap-2" size="lg" disabled={!space.available}>
+                <Button className="w-full rounded-xl gap-2" size="lg" disabled={!space.available || booking} onClick={handleBookNow}>
                   <Clock className="w-4 h-4" />
-                  {space.available ? "Book Now" : "Unavailable"}
+                  {booking ? "Booking..." : space.available ? "Book Now" : "Unavailable"}
                 </Button>
                 <Button
                   variant="outline"
