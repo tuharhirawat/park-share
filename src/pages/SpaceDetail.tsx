@@ -139,9 +139,9 @@ const SpaceDetail = () => {
                   </div>
                 </div>
 
-                <Button className="w-full rounded-xl gap-2" size="lg" disabled={!space.available}>
+                <Button className="w-full rounded-xl gap-2" size="lg" disabled={!space.available || booking} onClick={handleBookNow}>
                   <Clock className="w-4 h-4" />
-                  {space.available ? "Book Now" : "Unavailable"}
+                  {booking ? "Booking..." : space.available ? "Book Now" : "Unavailable"}
                 </Button>
                 <Button
                   variant="outline"
