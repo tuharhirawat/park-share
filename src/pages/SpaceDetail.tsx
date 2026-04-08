@@ -112,7 +112,12 @@ const SpaceDetail = () => {
                   <Clock className="w-4 h-4" />
                   {space.available ? "Book Now" : "Unavailable"}
                 </Button>
-                <Button variant="outline" className="w-full rounded-xl gap-2" size="lg">
+                <Button
+                  variant="outline"
+                  className="w-full rounded-xl gap-2"
+                  size="lg"
+                  onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${space.lat},${space.lng}`, '_blank')}
+                >
                   <Navigation className="w-4 h-4" /> Get Directions
                 </Button>
               </div>
