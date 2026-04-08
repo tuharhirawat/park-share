@@ -1,11 +1,22 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Car, Menu, X } from "lucide-react";
+import { Car, Menu, X, LogOut } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
+import { useAuth } from "@/hooks/use-auth";
+import { toast } from "sonner";
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    const { signOut } = useAuth();
+    await signOut();
+    toast.success("Logged out successfully");
+    navigate("/");
+  };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
@@ -23,15 +34,27 @@ const Navbar = () => {
           <Link to="/search" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
             Find Parking
           </Link>
-          <Link to="/host" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-            List Your Space
-          </Link>
+          {user && (
+            <Link to="/host" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+              List Your Space
+            </Link>
+          )}
           <Link to="/" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
             How It Works
           </Link>
           <ThemeToggle />
-          <Link to="/login"><Button variant="outline" size="sm">Log In</Button></Link>
-          <Link to="/signup"><Button size="sm">Sign Up</Button></Link>
+          {!loading && (
+            user ? (
+              <Button variant="outline" size="sm" onClick={handleLogout}>
+                <LogOut className="w-4 h-4 mr-1" /> Log Out
+              </Button>
+            ) : (
+              <>
+                <Link to="/login"><Button variant="outline" size="sm">Log In</Button></Link>
+                <Link to="/signup"><Button size="sm">Sign Up</Button></Link>
+              </>
+            )
+          )}
         </div>
 
         <button className="md:hidden" onClick={() => setIsOpen(!isOpen)}>
@@ -42,11 +65,23 @@ const Navbar = () => {
       {isOpen && (
         <div className="md:hidden bg-background border-b border-border px-4 pb-4 space-y-3">
           <Link to="/search" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>Find Parking</Link>
-          <Link to="/host" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>List Your Space</Link>
+          {user && (
+            <Link to="/host" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>List Your Space</Link>
+          )}
           <div className="flex gap-2 pt-2 items-center">
             <ThemeToggle />
-            <Link to="/login" className="flex-1" onClick={() => setIsOpen(false)}><Button variant="outline" size="sm" className="w-full">Log In</Button></Link>
-            <Link to="/signup" className="flex-1" onClick={() => setIsOpen(false)}><Button size="sm" className="w-full">Sign Up</Button></Link>
+            {!loading && (
+              user ? (
+                <Button variant="outline" size="sm" className="flex-1" onClick={() => { setIsOpen(false); handleLogout(); }}>
+                  <LogOut className="w-4 h-4 mr-1" /> Log Out
+                </Button>
+              ) : (
+                <>
+                  <Link to="/login" className="flex-1" onClick={() => setIsOpen(false)}><Button variant="outline" size="sm" className="w-full">Log In</Button></Link>
+                  <Link to="/signup" className="flex-1" onClick={() => setIsOpen(false)}><Button size="sm" className="w-full">Sign Up</Button></Link>
+                </>
+              )
+            )}
           </div>
         </div>
       )}
