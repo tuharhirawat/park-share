@@ -16,39 +16,48 @@ export type Database = {
     Tables: {
       bookings: {
         Row: {
+          booking_date: string | null
           created_at: string
           hours: number
           id: string
+          payment_id: string | null
           space_address: string
           space_city: string
           space_id: string
           space_title: string
+          start_time: string | null
           status: string
           total_price: number
           updated_at: string
           user_id: string
         }
         Insert: {
+          booking_date?: string | null
           created_at?: string
           hours: number
           id?: string
+          payment_id?: string | null
           space_address: string
           space_city: string
           space_id: string
           space_title: string
+          start_time?: string | null
           status?: string
           total_price: number
           updated_at?: string
           user_id: string
         }
         Update: {
+          booking_date?: string | null
           created_at?: string
           hours?: number
           id?: string
+          payment_id?: string | null
           space_address?: string
           space_city?: string
           space_id?: string
           space_title?: string
+          start_time?: string | null
           status?: string
           total_price?: number
           updated_at?: string
