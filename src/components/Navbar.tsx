@@ -34,9 +34,14 @@ const Navbar = () => {
             Find Parking
           </Link>
           {user && (
-            <Link to="/host" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-              List Your Space
-            </Link>
+            <>
+              <Link to="/host" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                List Your Space
+              </Link>
+              <Link to="/my-bookings" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                My Bookings
+              </Link>
+            </>
           )}
           <Link to="/" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
             How It Works
@@ -65,7 +70,10 @@ const Navbar = () => {
         <div className="md:hidden bg-background border-b border-border px-4 pb-4 space-y-3">
           <Link to="/search" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>Find Parking</Link>
           {user && (
-            <Link to="/host" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>List Your Space</Link>
+            <>
+              <Link to="/host" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>List Your Space</Link>
+              <Link to="/my-bookings" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>My Bookings</Link>
+            </>
           )}
           <div className="flex gap-2 pt-2 items-center">
             <ThemeToggle />
