@@ -29,23 +29,21 @@ const SpaceDetail = () => {
   const { user } = useAuth();
   const { data: allSpaces = [] } = useParkingSpaces();
 
-  // Find from combined data or fallback to mock
   const space = allSpaces.find((s) => s.id === id) || mockSpaces.find((s) => s.id === id);
 
   const [isFullDay, setIsFullDay] = useState(false);
-  const [hours, setHours] = useState(2);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("11:00");
   const [booking, setBooking] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Calculate hours from custom time inputs
   const calculateHours = () => {
     if (isFullDay) return 24;
     const [sh, sm] = startTime.split(":").map(Number);
     const [eh, em] = endTime.split(":").map(Number);
     const diff = (eh * 60 + em - sh * 60 - sm) / 60;
-    return Math.max(0.5, diff);
+    return Math.max(0, diff);
   };
 
   const effectiveHours = isFullDay ? 24 : calculateHours();
@@ -60,6 +58,19 @@ const SpaceDetail = () => {
     ? Math.round(space.pricePerHour * effectiveHours)
     : 0;
   const serviceFee = totalPrice - basePrice;
+
+  const validateBooking = (): boolean => {
+    const newErrors: Record<string, string> = {};
+    if (!selectedDate) newErrors.date = "Please select a date";
+    if (!isFullDay) {
+      if (!startTime) newErrors.startTime = "Start time is required";
+      if (!endTime) newErrors.endTime = "End time is required";
+      if (effectiveHours <= 0) newErrors.endTime = "End time must be after start time";
+      if (effectiveHours > 18) newErrors.endTime = "Maximum 18 hours per booking — consider full day";
+    }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const loadRazorpayScript = (): Promise<boolean> => {
     return new Promise((resolve) => {
@@ -79,14 +90,7 @@ const SpaceDetail = () => {
       return;
     }
     if (!space) return;
-    if (!selectedDate) {
-      toast.error("Please select a date");
-      return;
-    }
-    if (!isFullDay && effectiveHours <= 0) {
-      toast.error("End time must be after start time");
-      return;
-    }
+    if (!validateBooking()) return;
 
     setBooking(true);
 
@@ -233,21 +237,22 @@ const SpaceDetail = () => {
                   <label className="text-sm font-semibold text-foreground mb-2 block">Date</label>
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !selectedDate && "text-muted-foreground")}>
+                      <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !selectedDate && "text-muted-foreground", errors.date && "border-destructive")}>
                         <CalendarIcon className="mr-2 h-4 w-4" />
                         {selectedDate ? format(selectedDate, "PPP") : "Pick a date"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">
-                      <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))} initialFocus />
+                      <Calendar mode="single" selected={selectedDate} onSelect={(d) => { setSelectedDate(d); setErrors(prev => ({ ...prev, date: "" })); }} disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))} initialFocus />
                     </PopoverContent>
                   </Popover>
+                  {errors.date && <p className="text-xs text-destructive mt-1">{errors.date}</p>}
                 </div>
 
                 {/* Full day toggle */}
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-semibold text-foreground">Full Day Booking</label>
-                  <Switch checked={isFullDay} onCheckedChange={setIsFullDay} />
+                  <Switch checked={isFullDay} onCheckedChange={(v) => { setIsFullDay(v); setErrors(prev => ({ ...prev, startTime: "", endTime: "" })); }} />
                 </div>
 
                 {/* Custom time range */}
@@ -257,11 +262,13 @@ const SpaceDetail = () => {
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <span className="text-xs text-muted-foreground">Start</span>
-                        <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="mt-1" />
+                        <Input type="time" value={startTime} onChange={e => { setStartTime(e.target.value); setErrors(prev => ({ ...prev, startTime: "" })); }} className={cn("mt-1", errors.startTime && "border-destructive")} />
+                        {errors.startTime && <p className="text-xs text-destructive mt-1">{errors.startTime}</p>}
                       </div>
                       <div>
                         <span className="text-xs text-muted-foreground">End</span>
-                        <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="mt-1" />
+                        <Input type="time" value={endTime} onChange={e => { setEndTime(e.target.value); setErrors(prev => ({ ...prev, endTime: "" })); }} className={cn("mt-1", errors.endTime && "border-destructive")} />
+                        {errors.endTime && <p className="text-xs text-destructive mt-1">{errors.endTime}</p>}
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -287,7 +294,7 @@ const SpaceDetail = () => {
                   </div>
                 </div>
 
-                <Button className="w-full rounded-xl gap-2" size="lg" disabled={!space.available || booking || (!isFullDay && effectiveHours <= 0)} onClick={handleBookNow}>
+                <Button className="w-full rounded-xl gap-2" size="lg" disabled={!space.available || booking} onClick={handleBookNow}>
                   <Clock className="w-4 h-4" />
                   {booking ? "Processing..." : space.available ? "Pay & Book Now" : "Unavailable"}
                 </Button>
