@@ -65,6 +65,69 @@ export type Database = {
         }
         Relationships: []
       }
+      parking_spaces: {
+        Row: {
+          address: string
+          available: boolean
+          city: string
+          created_at: string
+          description: string | null
+          features: string[]
+          id: string
+          image_urls: string[]
+          lat: number | null
+          lng: number | null
+          price_per_day: number | null
+          price_per_hour: number
+          rating: number
+          review_count: number
+          title: string
+          updated_at: string
+          user_id: string
+          vehicle_types: string[]
+        }
+        Insert: {
+          address: string
+          available?: boolean
+          city: string
+          created_at?: string
+          description?: string | null
+          features?: string[]
+          id?: string
+          image_urls?: string[]
+          lat?: number | null
+          lng?: number | null
+          price_per_day?: number | null
+          price_per_hour: number
+          rating?: number
+          review_count?: number
+          title: string
+          updated_at?: string
+          user_id: string
+          vehicle_types?: string[]
+        }
+        Update: {
+          address?: string
+          available?: boolean
+          city?: string
+          created_at?: string
+          description?: string | null
+          features?: string[]
+          id?: string
+          image_urls?: string[]
+          lat?: number | null
+          lng?: number | null
+          price_per_day?: number | null
+          price_per_hour?: number
+          rating?: number
+          review_count?: number
+          title?: string
+          updated_at?: string
+          user_id?: string
+          vehicle_types?: string[]
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

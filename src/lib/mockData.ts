@@ -14,8 +14,10 @@ export interface ParkingSpace {
   lat: number;
   lng: number;
   available: boolean;
+  _dbId?: string; // Internal reference to database ID, present only for real listings
 }
 
+// TODO: Remove mock data once sufficient real listings exist
 export const mockSpaces: ParkingSpace[] = [
   {
     id: "1", title: "Covered Garage near MG Road", address: "12, Brigade Road", city: "Bangalore",

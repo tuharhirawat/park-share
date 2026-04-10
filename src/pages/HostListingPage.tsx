@@ -5,11 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { Car, Bike, MapPin, IndianRupee, Shield, Clock } from "lucide-react";
+import { Car, Bike, MapPin, IndianRupee, Shield, Clock, ImagePlus, X, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 
 const vehicleOptions = [
   { id: "bike", label: "Bike", icon: Bike },
@@ -22,6 +23,7 @@ const featureOptions = ["CCTV", "Covered", "Gated", "Guard", "Well-Lit", "EV Cha
 const HostListingPage = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
@@ -30,6 +32,9 @@ const HostListingPage = () => {
   const [vehicles, setVehicles] = useState<string[]>([]);
   const [features, setFeatures] = useState<string[]>([]);
   const [description, setDescription] = useState("");
+  const [images, setImages] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -42,13 +47,69 @@ const HostListingPage = () => {
     setArr(arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item]);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (images.length + files.length > 5) {
+      toast.error("Maximum 5 images allowed");
+      return;
+    }
+    const newImages = [...images, ...files];
+    setImages(newImages);
+    const newPreviews = files.map(f => URL.createObjectURL(f));
+    setImagePreviews(prev => [...prev, ...newPreviews]);
+  };
+
+  const removeImage = (index: number) => {
+    URL.revokeObjectURL(imagePreviews[index]);
+    setImages(prev => prev.filter((_, i) => i !== index));
+    setImagePreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadImages = async (): Promise<string[]> => {
+    if (!user) return [];
+    const urls: string[] = [];
+    for (const file of images) {
+      const ext = file.name.split(".").pop();
+      const path = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error } = await supabase.storage.from("parking-images").upload(path, file);
+      if (error) throw error;
+      const { data } = supabase.storage.from("parking-images").getPublicUrl(path);
+      urls.push(data.publicUrl);
+    }
+    return urls;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !address || !city || !pricePerHour) {
       toast.error("Please fill in all required fields");
       return;
     }
-    toast.success("Your parking space has been listed! 🎉");
+    if (!user) return;
+
+    setSubmitting(true);
+    try {
+      const imageUrls = await uploadImages();
+      const { error } = await supabase.from("parking_spaces").insert({
+        user_id: user.id,
+        title,
+        address,
+        city,
+        price_per_hour: parseFloat(pricePerHour),
+        price_per_day: pricePerDay ? parseFloat(pricePerDay) : null,
+        vehicle_types: vehicles,
+        features,
+        description,
+        image_urls: imageUrls,
+      });
+      if (error) throw error;
+      toast.success("Your parking space has been listed! 🎉");
+      navigate("/search");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create listing");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -89,6 +150,30 @@ const HostListingPage = () => {
               </div>
             </div>
 
+            {/* Image Upload */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2"><ImagePlus className="w-4 h-4 text-primary" /> Photos (up to 5)</Label>
+              <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelect} />
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                {imagePreviews.map((src, i) => (
+                  <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-border group">
+                    <img src={src} alt="" className="w-full h-full object-cover" />
+                    <button type="button" onClick={() => removeImage(i)}
+                      className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                {images.length < 5 && (
+                  <button type="button" onClick={() => fileInputRef.current?.click()}
+                    className="aspect-square rounded-xl border-2 border-dashed border-border hover:border-primary/50 flex flex-col items-center justify-center gap-1 text-muted-foreground hover:text-primary transition-colors">
+                    <ImagePlus className="w-6 h-6" />
+                    <span className="text-[10px]">Add</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label className="flex items-center gap-2"><Car className="w-4 h-4 text-primary" /> Vehicle Types Supported</Label>
               <div className="flex gap-3">
@@ -120,8 +205,8 @@ const HostListingPage = () => {
               <Textarea id="desc" placeholder="Describe your space, availability times, and any rules..." value={description} onChange={e => setDescription(e.target.value)} rows={4} />
             </div>
 
-            <Button type="submit" size="lg" className="w-full rounded-xl">
-              Publish Listing
+            <Button type="submit" size="lg" className="w-full rounded-xl" disabled={submitting}>
+              {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Publishing...</> : "Publish Listing"}
             </Button>
           </form>
         </div>
