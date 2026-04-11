@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           booking_date: string | null
           created_at: string
+          end_time: string | null
           hours: number
           id: string
           payment_id: string | null
@@ -34,6 +35,7 @@ export type Database = {
         Insert: {
           booking_date?: string | null
           created_at?: string
+          end_time?: string | null
           hours: number
           id?: string
           payment_id?: string | null
@@ -50,6 +52,7 @@ export type Database = {
         Update: {
           booking_date?: string | null
           created_at?: string
+          end_time?: string | null
           hours?: number
           id?: string
           payment_id?: string | null
@@ -127,6 +130,54 @@ export type Database = {
           vehicle_types?: string[]
         }
         Relationships: []
+      }
+      reviews: {
+        Row: {
+          booking_id: string
+          created_at: string
+          id: string
+          rating: number
+          review_text: string | null
+          space_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          booking_id: string
+          created_at?: string
+          id?: string
+          rating: number
+          review_text?: string | null
+          space_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          booking_id?: string
+          created_at?: string
+          id?: string
+          rating?: number
+          review_text?: string | null
+          space_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviews_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: true
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reviews_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "parking_spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
