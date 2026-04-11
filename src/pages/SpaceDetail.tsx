@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useParkingSpaces } from "@/hooks/useParkingSpaces";
+import ReviewsList from "@/components/ReviewsList";
 
 declare global {
   interface Window {
@@ -221,8 +222,13 @@ const SpaceDetail = () => {
                   {space.vehicleTypes.map((v) => (
                     <Badge key={v} variant="outline" className="gap-1 text-sm py-1.5 px-3 capitalize">{vehicleIcons[v]} {v}</Badge>
                   ))}
-                </div>
               </div>
+              {/* Reviews section */}
+              <div className="bg-card rounded-2xl p-6 card-shadow space-y-4">
+                <h3 className="font-display font-bold text-foreground text-lg">Reviews</h3>
+                <ReviewsList spaceId={space._dbId || space.id} />
+              </div>
+            </div>
             </div>
 
             {/* Booking sidebar */}
