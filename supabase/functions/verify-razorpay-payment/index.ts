@@ -78,6 +78,7 @@ serve(async (req) => {
       total_price: booking_data.total_price,
       booking_date: booking_data.booking_date,
       start_time: booking_data.start_time,
+      end_time: booking_data.end_time || null,
       payment_id: razorpay_payment_id,
       status: "confirmed",
     });

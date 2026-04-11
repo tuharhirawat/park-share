@@ -38,6 +38,9 @@ const Navbar = () => {
               <Link to="/host" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
                 List Your Space
               </Link>
+              <Link to="/host/dashboard" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                Host Dashboard
+              </Link>
               <Link to="/my-bookings" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
                 My Bookings
               </Link>
@@ -72,6 +75,7 @@ const Navbar = () => {
           {user && (
             <>
               <Link to="/host" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>List Your Space</Link>
+              <Link to="/host/dashboard" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>Host Dashboard</Link>
               <Link to="/my-bookings" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>My Bookings</Link>
             </>
           )}
