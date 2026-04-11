@@ -139,6 +139,7 @@ const SpaceDetail = () => {
                     total_price: totalPrice,
                     booking_date: format(selectedDate!, "yyyy-MM-dd"),
                     start_time: isFullDay ? "00:00" : startTime,
+                    end_time: isFullDay ? "23:59" : endTime,
                   },
                 },
               }
