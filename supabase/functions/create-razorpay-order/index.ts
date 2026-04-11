@@ -34,9 +34,9 @@ serve(async (req) => {
         Authorization: "Basic " + btoa(`${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`),
       },
       body: JSON.stringify({
-        amount: Math.round(amount * 100), // Razorpay expects paise
+        amount: Math.round(amount * 100),
         currency,
-        receipt,
+        receipt: receipt ? String(receipt).substring(0, 40) : undefined,
         notes,
       }),
     });
