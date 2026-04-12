@@ -31,6 +31,7 @@ export type Database = {
           total_price: number
           updated_at: string
           user_id: string
+          vehicle_type: string
         }
         Insert: {
           booking_date?: string | null
@@ -48,6 +49,7 @@ export type Database = {
           total_price: number
           updated_at?: string
           user_id: string
+          vehicle_type?: string
         }
         Update: {
           booking_date?: string | null
@@ -65,6 +67,7 @@ export type Database = {
           total_price?: number
           updated_at?: string
           user_id?: string
+          vehicle_type?: string
         }
         Relationships: []
       }
@@ -72,6 +75,8 @@ export type Database = {
         Row: {
           address: string
           available: boolean
+          bike_slots: number
+          car_slots: number
           city: string
           created_at: string
           description: string | null
@@ -92,6 +97,8 @@ export type Database = {
         Insert: {
           address: string
           available?: boolean
+          bike_slots?: number
+          car_slots?: number
           city: string
           created_at?: string
           description?: string | null
@@ -112,6 +119,8 @@ export type Database = {
         Update: {
           address?: string
           available?: boolean
+          bike_slots?: number
+          car_slots?: number
           city?: string
           created_at?: string
           description?: string | null
@@ -184,7 +193,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      check_parking_capacity: {
+        Args: {
+          p_booking_date: string
+          p_end_time: string
+          p_space_id: string
+          p_start_time: string
+          p_vehicle_type: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never
