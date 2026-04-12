@@ -130,10 +130,13 @@ const SpaceDetail = () => {
 
         if (capError) {
           console.error("Capacity check error:", capError);
-        } else if (capacityCheck && !capacityCheck.available) {
-          toast.error(capacityCheck.error || "No slots available for this time");
-          setBooking(false);
-          return;
+        } else if (capacityCheck) {
+          const result = capacityCheck as Record<string, unknown>;
+          if (!result.available) {
+            toast.error((result.error as string) || "No slots available for this time");
+            setBooking(false);
+            return;
+          }
         }
       }
 
