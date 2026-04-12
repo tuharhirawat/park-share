@@ -17,6 +17,13 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useParkingSpaces } from "@/hooks/useParkingSpaces";
 import ReviewsList from "@/components/ReviewsList";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 declare global {
   interface Window {
@@ -37,6 +44,7 @@ const SpaceDetail = () => {
   const [endTime, setEndTime] = useState("11:00");
   const [booking, setBooking] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [selectedVehicle, setSelectedVehicle] = useState<string>("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const calculateHours = () => {
@@ -60,9 +68,16 @@ const SpaceDetail = () => {
     : 0;
   const serviceFee = totalPrice - basePrice;
 
+  // Get the real DB id for API calls (strip db_ prefix)
+  const getDbSpaceId = () => {
+    if (!space) return "";
+    return space._dbId || space.id;
+  };
+
   const validateBooking = (): boolean => {
     const newErrors: Record<string, string> = {};
     if (!selectedDate) newErrors.date = "Please select a date";
+    if (!selectedVehicle) newErrors.vehicle = "Please select a vehicle type";
     if (!isFullDay) {
       if (!startTime) newErrors.startTime = "Start time is required";
       if (!endTime) newErrors.endTime = "End time is required";
@@ -96,6 +111,35 @@ const SpaceDetail = () => {
     setBooking(true);
 
     try {
+      const dbSpaceId = getDbSpaceId();
+      const actualStartTime = isFullDay ? "00:00" : startTime;
+      const actualEndTime = isFullDay ? "23:59" : endTime;
+
+      // Check capacity before proceeding to payment
+      if (space._dbId) {
+        const { data: capacityCheck, error: capError } = await supabase.rpc(
+          "check_parking_capacity",
+          {
+            p_space_id: dbSpaceId,
+            p_vehicle_type: selectedVehicle,
+            p_booking_date: format(selectedDate!, "yyyy-MM-dd"),
+            p_start_time: actualStartTime,
+            p_end_time: actualEndTime,
+          }
+        );
+
+        if (capError) {
+          console.error("Capacity check error:", capError);
+        } else if (capacityCheck) {
+          const result = capacityCheck as Record<string, unknown>;
+          if (!result.available) {
+            toast.error((result.error as string) || "No slots available for this time");
+            setBooking(false);
+            return;
+          }
+        }
+      }
+
       const loaded = await loadRazorpayScript();
       if (!loaded) throw new Error("Failed to load payment gateway");
 
@@ -105,8 +149,8 @@ const SpaceDetail = () => {
           body: {
             amount: totalPrice,
             currency: "INR",
-            receipt: `booking_${space.id}_${Date.now()}`,
-            notes: { space_id: space.id, user_id: user.id },
+            receipt: `bk_${dbSpaceId.slice(0, 8)}_${Date.now().toString(36)}`.substring(0, 40),
+            notes: { space_id: dbSpaceId, user_id: user.id },
           },
         }
       );
@@ -132,15 +176,16 @@ const SpaceDetail = () => {
                   razorpay_payment_id: response.razorpay_payment_id,
                   razorpay_signature: response.razorpay_signature,
                   booking_data: {
-                    space_id: space.id,
+                    space_id: dbSpaceId,
                     space_title: space.title,
                     space_address: space.address,
                     space_city: space.city,
                     hours: Math.ceil(effectiveHours),
                     total_price: totalPrice,
                     booking_date: format(selectedDate!, "yyyy-MM-dd"),
-                    start_time: isFullDay ? "00:00" : startTime,
-                    end_time: isFullDay ? "23:59" : endTime,
+                    start_time: actualStartTime,
+                    end_time: actualEndTime,
+                    vehicle_type: selectedVehicle,
                   },
                 },
               }
@@ -222,13 +267,13 @@ const SpaceDetail = () => {
                   {space.vehicleTypes.map((v) => (
                     <Badge key={v} variant="outline" className="gap-1 text-sm py-1.5 px-3 capitalize">{vehicleIcons[v]} {v}</Badge>
                   ))}
+                </div>
               </div>
               {/* Reviews section */}
               <div className="bg-card rounded-2xl p-6 card-shadow space-y-4">
                 <h3 className="font-display font-bold text-foreground text-lg">Reviews</h3>
                 <ReviewsList spaceId={space._dbId || space.id} />
               </div>
-            </div>
             </div>
 
             {/* Booking sidebar */}
@@ -237,6 +282,24 @@ const SpaceDetail = () => {
                 <div className="text-center">
                   <div className="text-3xl font-bold text-foreground">₹{space.pricePerHour}<span className="text-base font-normal text-muted-foreground">/hr</span></div>
                   <div className="text-sm text-muted-foreground">or ₹{space.pricePerDay}/day</div>
+                </div>
+
+                {/* Vehicle type selector */}
+                <div>
+                  <label className="text-sm font-semibold text-foreground mb-2 block">Vehicle Type</label>
+                  <Select value={selectedVehicle} onValueChange={(v) => { setSelectedVehicle(v); setErrors(prev => ({ ...prev, vehicle: "" })); }}>
+                    <SelectTrigger className={cn(errors.vehicle && "border-destructive")}>
+                      <SelectValue placeholder="Select vehicle type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {space.vehicleTypes.map((v) => (
+                        <SelectItem key={v} value={v} className="capitalize">
+                          {v}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.vehicle && <p className="text-xs text-destructive mt-1">{errors.vehicle}</p>}
                 </div>
 
                 {/* Date picker */}

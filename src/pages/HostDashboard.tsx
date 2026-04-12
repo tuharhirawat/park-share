@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   Loader2, MapPin, Star, IndianRupee, TrendingUp, Clock, Car, BarChart3,
 } from "lucide-react";
-import { format, parseISO, startOfMonth, subMonths } from "date-fns";
+import { format, parseISO, subMonths } from "date-fns";
 import {
   ChartContainer,
   ChartTooltip,
@@ -18,7 +18,6 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   LineChart, Line,
-  ResponsiveContainer,
 } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -31,6 +30,8 @@ interface Space {
   available: boolean;
   rating: number;
   review_count: number;
+  car_slots: number;
+  bike_slots: number;
 }
 
 interface Booking {
@@ -44,6 +45,7 @@ interface Booking {
   start_time: string | null;
   end_time: string | null;
   created_at: string;
+  vehicle_type: string;
 }
 
 interface Review {
@@ -66,36 +68,86 @@ const HostDashboard = () => {
     if (!authLoading && !user) navigate("/login");
   }, [user, authLoading, navigate]);
 
-  useEffect(() => {
-    if (user) fetchAll();
+  const fetchAll = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+
+    // Step 1: Fetch host's spaces
+    const { data: spacesData } = await supabase
+      .from("parking_spaces")
+      .select("id, title, address, city, price_per_hour, available, rating, review_count, car_slots, bike_slots")
+      .eq("user_id", user.id);
+
+    const hostSpaces = (spacesData || []) as Space[];
+    setSpaces(hostSpaces);
+
+    if (hostSpaces.length === 0) {
+      setBookings([]);
+      setReviews([]);
+      setLoading(false);
+      return;
+    }
+
+    const spaceIds = hostSpaces.map(s => s.id);
+
+    // Step 2: Fetch bookings & reviews for host's spaces
+    // RLS now allows hosts to see bookings on their spaces
+    const [bookingsRes, reviewsRes] = await Promise.all([
+      supabase
+        .from("bookings")
+        .select("*")
+        .in("space_id", spaceIds)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("reviews")
+        .select("*")
+        .in("space_id", spaceIds)
+        .order("created_at", { ascending: false }),
+    ]);
+
+    setBookings((bookingsRes.data as Booking[]) || []);
+    setReviews((reviewsRes.data as Review[]) || []);
+    setLoading(false);
   }, [user]);
 
-  const fetchAll = async () => {
-    setLoading(true);
-    const [spacesRes, bookingsRes, reviewsRes] = await Promise.all([
-      supabase.from("parking_spaces").select("id, title, address, city, price_per_hour, available, rating, review_count").eq("user_id", user!.id),
-      supabase.from("bookings").select("*").order("created_at", { ascending: false }),
-      supabase.from("reviews").select("*").order("created_at", { ascending: false }),
-    ]);
-    setSpaces((spacesRes.data as Space[]) || []);
+  useEffect(() => {
+    if (user) fetchAll();
+  }, [user, fetchAll]);
 
-    // Filter bookings to only those for host's spaces
-    const spaceIds = new Set((spacesRes.data as Space[])?.map((s) => s.id) || []);
-    const hostBookings = ((bookingsRes.data as Booking[]) || []).filter((b) => spaceIds.has(b.space_id));
-    setBookings(hostBookings);
+  // Subscribe to realtime changes for live updates
+  useEffect(() => {
+    if (!user || spaces.length === 0) return;
+    const spaceIds = spaces.map(s => s.id);
 
-    const hostReviews = ((reviewsRes.data as Review[]) || []).filter((r) => spaceIds.has(r.space_id));
-    setReviews(hostReviews);
-    setLoading(false);
-  };
+    const channel = supabase
+      .channel("host-dashboard")
+      .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, (payload) => {
+        const row = payload.new as Booking;
+        if (row && spaceIds.includes(row.space_id)) {
+          fetchAll();
+        }
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "reviews" }, (payload) => {
+        const row = payload.new as Review;
+        if (row && spaceIds.includes(row.space_id)) {
+          fetchAll();
+        }
+      })
+      .subscribe();
 
-  // Computed data
-  const totalEarnings = useMemo(
-    () => bookings.filter((b) => b.status === "confirmed").reduce((s, b) => s + b.total_price, 0),
+    return () => { supabase.removeChannel(channel); };
+  }, [user, spaces.length, fetchAll]);
+
+  // Include both confirmed and completed (time-based) bookings for earnings
+  const nonCancelledBookings = useMemo(
+    () => bookings.filter((b) => b.status !== "cancelled"),
     [bookings]
   );
 
-  const confirmedBookings = bookings.filter((b) => b.status === "confirmed");
+  const totalEarnings = useMemo(
+    () => nonCancelledBookings.reduce((s, b) => s + Number(b.total_price), 0),
+    [nonCancelledBookings]
+  );
 
   // Earnings over last 6 months
   const earningsOverTime = useMemo(() => {
@@ -104,28 +156,28 @@ const HostDashboard = () => {
       const d = subMonths(new Date(), i);
       const key = format(d, "yyyy-MM");
       const label = format(d, "MMM");
-      const sum = confirmedBookings
+      const sum = nonCancelledBookings
         .filter((b) => b.booking_date && b.booking_date.startsWith(key))
-        .reduce((s, b) => s + b.total_price, 0);
+        .reduce((s, b) => s + Number(b.total_price), 0);
       months.push({ month: label, earnings: sum });
     }
     return months;
-  }, [confirmedBookings]);
+  }, [nonCancelledBookings]);
 
   // Bookings per listing
   const bookingsPerListing = useMemo(
     () =>
       spaces.map((s) => ({
         name: s.title.length > 20 ? s.title.slice(0, 20) + "…" : s.title,
-        bookings: confirmedBookings.filter((b) => b.space_id === s.id).length,
+        bookings: nonCancelledBookings.filter((b) => b.space_id === s.id).length,
       })),
-    [spaces, confirmedBookings]
+    [spaces, nonCancelledBookings]
   );
 
   // Peak hours
   const peakHours = useMemo(() => {
     const hourCounts: Record<number, number> = {};
-    confirmedBookings.forEach((b) => {
+    nonCancelledBookings.forEach((b) => {
       if (b.start_time) {
         const h = parseInt(b.start_time.split(":")[0]);
         hourCounts[h] = (hourCounts[h] || 0) + 1;
@@ -135,13 +187,13 @@ const HostDashboard = () => {
       hour: `${i.toString().padStart(2, "0")}:00`,
       bookings: hourCounts[i] || 0,
     }));
-  }, [confirmedBookings]);
+  }, [nonCancelledBookings]);
 
   // Live status per space
   const liveStatus = useMemo(() => {
     const now = new Date();
     return spaces.map((s) => {
-      const spaceBookings = confirmedBookings.filter((b) => b.space_id === s.id);
+      const spaceBookings = nonCancelledBookings.filter((b) => b.space_id === s.id);
       const activeNow = spaceBookings.filter((b) => {
         if (!b.booking_date || !b.start_time) return false;
         const bd = parseISO(b.booking_date);
@@ -168,11 +220,25 @@ const HostDashboard = () => {
         totalBookings: spaceBookings.length,
       };
     });
-  }, [spaces, confirmedBookings]);
+  }, [spaces, nonCancelledBookings]);
 
   const avgRating = reviews.length > 0
     ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)
     : "N/A";
+
+  const activeBookingsCount = useMemo(() => {
+    const now = new Date();
+    return nonCancelledBookings.filter((b) => {
+      if (!b.booking_date || !b.start_time) return false;
+      const bd = parseISO(b.booking_date);
+      const [sh, sm] = b.start_time.split(":").map(Number);
+      const start = new Date(bd); start.setHours(sh, sm, 0, 0);
+      const end = b.end_time
+        ? (() => { const [eh, em] = b.end_time.split(":").map(Number); const e = new Date(bd); e.setHours(eh, em, 0, 0); return e; })()
+        : new Date(start.getTime() + b.hours * 3600000);
+      return now >= start && now <= end;
+    }).length;
+  }, [nonCancelledBookings]);
 
   if (authLoading || loading) {
     return (
@@ -211,7 +277,7 @@ const HostDashboard = () => {
           </h1>
 
           {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
             <div className="bg-card rounded-2xl p-5 card-shadow">
               <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
                 <Car className="w-4 h-4" /> Listings
@@ -220,9 +286,15 @@ const HostDashboard = () => {
             </div>
             <div className="bg-card rounded-2xl p-5 card-shadow">
               <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
-                <BarChart3 className="w-4 h-4" /> Bookings
+                <BarChart3 className="w-4 h-4" /> Total Bookings
               </div>
-              <p className="text-2xl font-bold text-foreground">{confirmedBookings.length}</p>
+              <p className="text-2xl font-bold text-foreground">{nonCancelledBookings.length}</p>
+            </div>
+            <div className="bg-card rounded-2xl p-5 card-shadow">
+              <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
+                <Clock className="w-4 h-4" /> Active Now
+              </div>
+              <p className="text-2xl font-bold text-green-600">{activeBookingsCount}</p>
             </div>
             <div className="bg-card rounded-2xl p-5 card-shadow">
               <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
@@ -257,6 +329,9 @@ const HostDashboard = () => {
                       <p className="text-sm text-muted-foreground flex items-center gap-1">
                         <MapPin className="w-3.5 h-3.5" /> {s.address}, {s.city}
                       </p>
+                      <p className="text-xs text-muted-foreground">
+                        Capacity: {s.car_slots} car slots · {s.bike_slots} bike slots
+                      </p>
                     </div>
                     <div className="flex items-center gap-3 flex-wrap">
                       <Badge variant="outline" className={s.activeCount > 0 ? "bg-green-500/10 text-green-600 border-green-500/20" : s.available ? "bg-blue-500/10 text-blue-600 border-blue-500/20" : "bg-red-500/10 text-red-600 border-red-500/20"}>
@@ -289,7 +364,7 @@ const HostDashboard = () => {
               <div className="mt-6 space-y-3">
                 <h3 className="font-bold text-foreground">Earnings Per Listing</h3>
                 {spaces.map((s) => {
-                  const earned = confirmedBookings.filter((b) => b.space_id === s.id).reduce((sum, b) => sum + b.total_price, 0);
+                  const earned = nonCancelledBookings.filter((b) => b.space_id === s.id).reduce((sum, b) => sum + Number(b.total_price), 0);
                   return (
                     <div key={s.id} className="bg-card rounded-xl p-4 card-shadow flex justify-between items-center">
                       <span className="text-foreground font-medium">{s.title}</span>
@@ -367,6 +442,9 @@ const HostDashboard = () => {
                       <div>
                         <h3 className="font-bold text-foreground">{s.title}</h3>
                         <p className="text-sm text-muted-foreground">{s.address}, {s.city}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Capacity: {s.car_slots} cars · {s.bike_slots} bikes
+                        </p>
                       </div>
                       <div className="flex gap-3 flex-wrap">
                         <Badge variant="outline" className={s.activeCount > 0 ? "bg-green-500/10 text-green-600 border-green-500/20" : "bg-muted text-muted-foreground"}>

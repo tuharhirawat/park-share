@@ -67,6 +67,30 @@ serve(async (req) => {
       });
     }
 
+    // Double-check capacity using service role client
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    const { data: capacityCheck } = await supabaseAdmin.rpc("check_parking_capacity", {
+      p_space_id: booking_data.space_id,
+      p_vehicle_type: booking_data.vehicle_type || "car",
+      p_booking_date: booking_data.booking_date,
+      p_start_time: booking_data.start_time,
+      p_end_time: booking_data.end_time || "23:59",
+    });
+
+    if (capacityCheck && !capacityCheck.available) {
+      return new Response(JSON.stringify({
+        error: capacityCheck.error || "No slots available",
+        success: false,
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Insert booking with confirmed status
     const { error: insertError } = await supabase.from("bookings").insert({
       user_id: user.id,
@@ -79,6 +103,7 @@ serve(async (req) => {
       booking_date: booking_data.booking_date,
       start_time: booking_data.start_time,
       end_time: booking_data.end_time || null,
+      vehicle_type: booking_data.vehicle_type || "car",
       payment_id: razorpay_payment_id,
       status: "confirmed",
     });
