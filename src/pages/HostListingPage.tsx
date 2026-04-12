@@ -37,6 +37,14 @@ const listingSchema = z.object({
     .optional()
     .refine((v) => !v || (!isNaN(Number(v)) && Number(v) > 0), "Must be a positive number"),
   description: z.string().max(1000, "Description is too long").optional(),
+  carSlots: z
+    .string()
+    .min(1, "Required")
+    .refine((v) => !isNaN(Number(v)) && Number(v) >= 0 && Number(v) <= 100, "Must be 0-100"),
+  bikeSlots: z
+    .string()
+    .min(1, "Required")
+    .refine((v) => !isNaN(Number(v)) && Number(v) >= 0 && Number(v) <= 100, "Must be 0-100"),
 });
 
 type ListingForm = z.infer<typeof listingSchema>;
@@ -53,7 +61,7 @@ const HostListingPage = () => {
 
   const form = useForm<ListingForm>({
     resolver: zodResolver(listingSchema),
-    defaultValues: { title: "", address: "", city: "", pricePerHour: "", pricePerDay: "", description: "" },
+    defaultValues: { title: "", address: "", city: "", pricePerHour: "", pricePerDay: "", description: "", carSlots: "5", bikeSlots: "5" },
   });
 
   useEffect(() => {
@@ -106,6 +114,10 @@ const HostListingPage = () => {
 
   const onSubmit = async (values: ListingForm) => {
     if (!user) return;
+    if (vehicles.length === 0) {
+      toast.error("Please select at least one vehicle type");
+      return;
+    }
     setSubmitting(true);
     try {
       const imageUrls = await uploadImages();
@@ -120,6 +132,8 @@ const HostListingPage = () => {
         features,
         description: values.description || null,
         image_urls: imageUrls,
+        car_slots: parseInt(values.carSlots),
+        bike_slots: parseInt(values.bikeSlots),
       });
       if (error) throw error;
       toast.success("Your parking space has been listed! 🎉");
@@ -158,61 +172,55 @@ const HostListingPage = () => {
               />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="address"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Address</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Street address" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="city"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>City</FormLabel>
-                      <FormControl>
-                        <Input placeholder="City" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <FormField control={form.control} name="address" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Address</FormLabel>
+                    <FormControl><Input placeholder="Street address" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="city" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>City</FormLabel>
+                    <FormControl><Input placeholder="City" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="pricePerHour"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="flex items-center gap-2"><IndianRupee className="w-4 h-4 text-primary" /> Price per Hour</FormLabel>
-                      <FormControl>
-                        <Input type="number" placeholder="₹40" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="pricePerDay"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Price per Day</FormLabel>
-                      <FormControl>
-                        <Input type="number" placeholder="₹300" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <FormField control={form.control} name="pricePerHour" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-2"><IndianRupee className="w-4 h-4 text-primary" /> Price per Hour</FormLabel>
+                    <FormControl><Input type="number" placeholder="₹40" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="pricePerDay" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Price per Day</FormLabel>
+                    <FormControl><Input type="number" placeholder="₹300" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              </div>
+
+              {/* Vehicle Capacity */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField control={form.control} name="carSlots" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-2"><Car className="w-4 h-4 text-primary" /> Car Slots</FormLabel>
+                    <FormControl><Input type="number" min="0" max="100" placeholder="5" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="bikeSlots" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-2"><Bike className="w-4 h-4 text-primary" /> Bike Slots</FormLabel>
+                    <FormControl><Input type="number" min="0" max="100" placeholder="5" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
               </div>
 
               {/* Image Upload */}
@@ -265,19 +273,15 @@ const HostListingPage = () => {
                 </div>
               </div>
 
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-2"><Clock className="w-4 h-4 text-primary" /> Description & Rules</FormLabel>
-                    <FormControl>
-                      <Textarea placeholder="Describe your space, availability times, and any rules..." rows={4} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <FormField control={form.control} name="description" render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-2"><Clock className="w-4 h-4 text-primary" /> Description & Rules</FormLabel>
+                  <FormControl>
+                    <Textarea placeholder="Describe your space, availability times, and any rules..." rows={4} {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
               <Button type="submit" size="lg" className="w-full rounded-xl" disabled={submitting}>
                 {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Publishing...</> : "Publish Listing"}

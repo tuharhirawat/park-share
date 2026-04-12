@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, MapPin, Trash2, Loader2, Star, Filter } from "lucide-react";
 import { toast } from "sonner";
-import { format, isToday, isPast, parseISO } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -33,6 +33,7 @@ interface Booking {
   end_time: string | null;
   payment_id: string | null;
   created_at: string;
+  vehicle_type: string;
 }
 
 interface Review {
@@ -60,7 +61,6 @@ const computeStatus = (booking: Booking): ComputedStatus => {
   const endDt = new Date(bookingDate);
   endDt.setHours(eh, em, 0, 0);
 
-  // If no end_time, compute from hours
   if (!booking.end_time) {
     endDt.setTime(startDt.getTime() + booking.hours * 60 * 60 * 1000);
   }
@@ -116,28 +116,34 @@ const MyBookingsPage = () => {
     if (!authLoading && !user) navigate("/login");
   }, [user, authLoading, navigate]);
 
+  const fetchBookings = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+    if (error) toast.error("Failed to load bookings");
+    else setBookings((data as Booking[]) || []);
+    setLoading(false);
+  }, [user]);
+
+  const fetchReviews = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("reviews")
+      .select("id, booking_id, rating, review_text")
+      .eq("user_id", user.id);
+    if (data) setReviews(data as Review[]);
+  }, [user]);
+
   useEffect(() => {
     if (user) {
       fetchBookings();
       fetchReviews();
     }
-  }, [user]);
-
-  const fetchBookings = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("bookings")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) toast.error("Failed to load bookings");
-    else setBookings((data as Booking[]) || []);
-    setLoading(false);
-  };
-
-  const fetchReviews = async () => {
-    const { data } = await supabase.from("reviews").select("id, booking_id, rating, review_text");
-    if (data) setReviews(data as Review[]);
-  };
+  }, [user, fetchBookings, fetchReviews]);
 
   const handleCancel = async (id: string) => {
     setCancelling(id);
@@ -168,7 +174,11 @@ const MyBookingsPage = () => {
     });
     setSubmittingReview(false);
     if (error) {
-      toast.error(error.message.includes("duplicate") ? "Already reviewed" : "Failed to submit review");
+      if (error.message.includes("duplicate") || error.code === "23505") {
+        toast.error("You've already reviewed this booking");
+      } else {
+        toast.error("Failed to submit review");
+      }
     } else {
       toast.success("Review submitted! ⭐");
       setReviewingId(null);
@@ -222,6 +232,11 @@ const MyBookingsPage = () => {
               <Badge variant="outline" className={cfg.color}>
                 {cfg.label}
               </Badge>
+              {booking.vehicle_type && (
+                <Badge variant="secondary" className="capitalize text-xs">
+                  {booking.vehicle_type}
+                </Badge>
+              )}
             </div>
             <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
               <span className="flex items-center gap-1">
@@ -268,7 +283,7 @@ const MyBookingsPage = () => {
           </div>
         </div>
 
-        {/* Review section for completed bookings */}
+        {/* Review section for completed bookings only */}
         {booking.computedStatus === "completed" && !booking.hasReview && (
           <div className="border-t border-border pt-4">
             {reviewingId === booking.id ? (
