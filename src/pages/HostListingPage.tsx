@@ -14,11 +14,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import HostOnboardingModal from "@/components/HostOnboardingModal";
 
 const vehicleOptions = [
   { id: "bike", label: "Bike", icon: Bike },
   { id: "car", label: "Car", icon: Car },
-  { id: "suv", label: "SUV", icon: Car },
 ];
 
 const featureOptions = ["CCTV", "Covered", "Gated", "Guard", "Well-Lit", "EV Charging", "24/7 Access"];
@@ -49,6 +49,10 @@ const listingSchema = z.object({
 
 type ListingForm = z.infer<typeof listingSchema>;
 
+const generateSlotLabels = (count: number, prefix: string): string[] => {
+  return Array.from({ length: count }, (_, i) => `${prefix}-${i + 1}`);
+};
+
 const HostListingPage = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
@@ -58,6 +62,8 @@ const HostListingPage = () => {
   const [images, setImages] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [isHost, setIsHost] = useState<boolean | null>(null);
+  const [hostModalOpen, setHostModalOpen] = useState(false);
 
   const form = useForm<ListingForm>({
     resolver: zodResolver(listingSchema),
@@ -68,6 +74,20 @@ const HostListingPage = () => {
     if (!loading && !user) {
       toast.error("Please log in to list your space");
       navigate("/login");
+      return;
+    }
+    if (user) {
+      supabase
+        .from("profiles")
+        .select("is_host")
+        .eq("user_id", user.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) {
+            setIsHost(data.is_host);
+            if (!data.is_host) setHostModalOpen(true);
+          }
+        });
     }
   }, [user, loading, navigate]);
 
@@ -121,7 +141,10 @@ const HostListingPage = () => {
     setSubmitting(true);
     try {
       const imageUrls = await uploadImages();
-      const { error } = await supabase.from("parking_spaces").insert({
+      const carSlots = parseInt(values.carSlots);
+      const bikeSlots = parseInt(values.bikeSlots);
+
+      const { data: spaceData, error } = await supabase.from("parking_spaces").insert({
         user_id: user.id,
         title: values.title,
         address: values.address,
@@ -132,18 +155,62 @@ const HostListingPage = () => {
         features,
         description: values.description || null,
         image_urls: imageUrls,
-        car_slots: parseInt(values.carSlots),
-        bike_slots: parseInt(values.bikeSlots),
-      });
+        car_slots: carSlots,
+        bike_slots: bikeSlots,
+      }).select("id").single();
+
       if (error) throw error;
+
+      // Auto-generate labeled parking slots
+      const slotInserts: { space_id: string; label: string; vehicle_type: string }[] = [];
+      if (vehicles.includes("car") && carSlots > 0) {
+        generateSlotLabels(carSlots, "C").forEach(label => {
+          slotInserts.push({ space_id: spaceData.id, label, vehicle_type: "car" });
+        });
+      }
+      if (vehicles.includes("bike") && bikeSlots > 0) {
+        generateSlotLabels(bikeSlots, "B").forEach(label => {
+          slotInserts.push({ space_id: spaceData.id, label, vehicle_type: "bike" });
+        });
+      }
+
+      if (slotInserts.length > 0) {
+        const { error: slotError } = await supabase.from("parking_slots").insert(slotInserts);
+        if (slotError) console.error("Slot creation error:", slotError);
+      }
+
       toast.success("Your parking space has been listed! 🎉");
-      navigate("/search");
+      navigate("/host/dashboard");
     } catch (err: any) {
       toast.error(err.message || "Failed to create listing");
     } finally {
       setSubmitting(false);
     }
   };
+
+  if (isHost === false) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <HostOnboardingModal open={hostModalOpen} onOpenChange={(open) => {
+          setHostModalOpen(open);
+          if (!open) {
+            // Re-check host status
+            if (user) {
+              supabase.from("profiles").select("is_host").eq("user_id", user.id).maybeSingle()
+                .then(({ data }) => { if (data) setIsHost(data.is_host); });
+            }
+          }
+        }} />
+        <div className="pt-24 text-center px-4">
+          <h2 className="font-display text-2xl font-bold text-foreground mb-4">Become a Host First</h2>
+          <p className="text-muted-foreground mb-6">You need to complete host onboarding before listing a space.</p>
+          <Button onClick={() => setHostModalOpen(true)}>Start Host Onboarding</Button>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -157,19 +224,13 @@ const HostListingPage = () => {
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="bg-card rounded-2xl p-6 md:p-8 card-shadow space-y-6">
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-2"><MapPin className="w-4 h-4 text-primary" /> Space Title</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Covered Garage near MG Road" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <FormField control={form.control} name="title" render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-2"><MapPin className="w-4 h-4 text-primary" /> Space Title</FormLabel>
+                  <FormControl><Input placeholder="e.g., Covered Garage near MG Road" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField control={form.control} name="address" render={({ field }) => (
@@ -205,12 +266,12 @@ const HostListingPage = () => {
                 )} />
               </div>
 
-              {/* Vehicle Capacity */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField control={form.control} name="carSlots" render={({ field }) => (
                   <FormItem>
                     <FormLabel className="flex items-center gap-2"><Car className="w-4 h-4 text-primary" /> Car Slots</FormLabel>
                     <FormControl><Input type="number" min="0" max="100" placeholder="5" {...field} /></FormControl>
+                    <p className="text-xs text-muted-foreground">Slots labeled C-1, C-2, etc.</p>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -218,6 +279,7 @@ const HostListingPage = () => {
                   <FormItem>
                     <FormLabel className="flex items-center gap-2"><Bike className="w-4 h-4 text-primary" /> Bike Slots</FormLabel>
                     <FormControl><Input type="number" min="0" max="100" placeholder="5" {...field} /></FormControl>
+                    <p className="text-xs text-muted-foreground">Slots labeled B-1, B-2, etc.</p>
                     <FormMessage />
                   </FormItem>
                 )} />
