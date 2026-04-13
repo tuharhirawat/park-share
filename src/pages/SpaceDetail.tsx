@@ -327,7 +327,7 @@ const SpaceDetail = () => {
   };
 
   // Filter user vehicles by space's supported types
-  const compatibleVehicles = userVehicles.filter(v => space.vehicleTypes.includes(v.vehicle_type));
+  const compatibleVehicles = userVehicles.filter(v => space.vehicleTypes.includes(v.vehicle_type as any));
 
   return (
     <div className="min-h-screen bg-background">
