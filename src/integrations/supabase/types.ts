@@ -22,6 +22,7 @@ export type Database = {
           hours: number
           id: string
           payment_id: string | null
+          slot_id: string | null
           space_address: string
           space_city: string
           space_id: string
@@ -31,6 +32,7 @@ export type Database = {
           total_price: number
           updated_at: string
           user_id: string
+          vehicle_id: string | null
           vehicle_type: string
         }
         Insert: {
@@ -40,6 +42,7 @@ export type Database = {
           hours: number
           id?: string
           payment_id?: string | null
+          slot_id?: string | null
           space_address: string
           space_city: string
           space_id: string
@@ -49,6 +52,7 @@ export type Database = {
           total_price: number
           updated_at?: string
           user_id: string
+          vehicle_id?: string | null
           vehicle_type?: string
         }
         Update: {
@@ -58,6 +62,7 @@ export type Database = {
           hours?: number
           id?: string
           payment_id?: string | null
+          slot_id?: string | null
           space_address?: string
           space_city?: string
           space_id?: string
@@ -67,9 +72,63 @@ export type Database = {
           total_price?: number
           updated_at?: string
           user_id?: string
+          vehicle_id?: string | null
           vehicle_type?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "bookings_slot_id_fkey"
+            columns: ["slot_id"]
+            isOneToOne: false
+            referencedRelation: "parking_slots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookings_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parking_slots: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string
+          space_id: string
+          updated_at: string
+          vehicle_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label: string
+          space_id: string
+          updated_at?: string
+          vehicle_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          space_id?: string
+          updated_at?: string
+          vehicle_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parking_slots_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "parking_spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       parking_spaces: {
         Row: {
@@ -140,6 +199,42 @@ export type Database = {
         }
         Relationships: []
       }
+      profiles: {
+        Row: {
+          created_at: string
+          full_name: string
+          id: string
+          is_host: boolean
+          is_phone_verified: boolean
+          mobile_number: string | null
+          updated_at: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          full_name?: string
+          id?: string
+          is_host?: boolean
+          is_phone_verified?: boolean
+          mobile_number?: string | null
+          updated_at?: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          full_name?: string
+          id?: string
+          is_host?: boolean
+          is_phone_verified?: boolean
+          mobile_number?: string | null
+          updated_at?: string
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
       reviews: {
         Row: {
           booking_id: string
@@ -187,6 +282,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      vehicles: {
+        Row: {
+          brand_model: string
+          created_at: string
+          id: string
+          registration_number: string
+          updated_at: string
+          user_id: string
+          vehicle_type: string
+        }
+        Insert: {
+          brand_model?: string
+          created_at?: string
+          id?: string
+          registration_number: string
+          updated_at?: string
+          user_id: string
+          vehicle_type: string
+        }
+        Update: {
+          brand_model?: string
+          created_at?: string
+          id?: string
+          registration_number?: string
+          updated_at?: string
+          user_id?: string
+          vehicle_type?: string
+        }
+        Relationships: []
       }
     }
     Views: {
