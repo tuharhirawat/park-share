@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Star, MapPin, Shield, Clock, Car, Bike, ArrowLeft, Navigation, CalendarIcon } from "lucide-react";
-import { useState } from "react";
+import { Star, MapPin, Shield, Clock, Car, Bike, ArrowLeft, Navigation, CalendarIcon, Loader2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -31,6 +31,20 @@ declare global {
   }
 }
 
+interface UserVehicle {
+  id: string;
+  vehicle_type: string;
+  brand_model: string;
+  registration_number: string;
+}
+
+interface ParkingSlot {
+  id: string;
+  label: string;
+  vehicle_type: string;
+  is_active: boolean;
+}
+
 const SpaceDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -45,7 +59,78 @@ const SpaceDetail = () => {
   const [booking, setBooking] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [selectedVehicle, setSelectedVehicle] = useState<string>("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string>("");
+  const [selectedSlotId, setSelectedSlotId] = useState<string>("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // User's vehicles
+  const [userVehicles, setUserVehicles] = useState<UserVehicle[]>([]);
+  const [loadingVehicles, setLoadingVehicles] = useState(false);
+
+  // Available slots
+  const [slots, setSlots] = useState<ParkingSlot[]>([]);
+  const [availableSlots, setAvailableSlots] = useState<ParkingSlot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+
+  // Fetch user vehicles
+  useEffect(() => {
+    if (!user) return;
+    setLoadingVehicles(true);
+    supabase
+      .from("vehicles")
+      .select("id, vehicle_type, brand_model, registration_number")
+      .eq("user_id", user.id)
+      .then(({ data }) => {
+        setUserVehicles((data as UserVehicle[]) || []);
+        setLoadingVehicles(false);
+      });
+  }, [user]);
+
+  // Fetch all slots for this space
+  useEffect(() => {
+    if (!space?._dbId) return;
+    setLoadingSlots(true);
+    supabase
+      .from("parking_slots")
+      .select("id, label, vehicle_type, is_active")
+      .eq("space_id", space._dbId)
+      .eq("is_active", true)
+      .order("label")
+      .then(({ data }) => {
+        setSlots((data as ParkingSlot[]) || []);
+        setLoadingSlots(false);
+      });
+  }, [space]);
+
+  // Filter available slots when vehicle type / date / time change
+  const checkSlotAvailability = useCallback(async () => {
+    if (!space?._dbId || !selectedVehicle || !selectedDate) {
+      setAvailableSlots(slots.filter(s => s.vehicle_type === selectedVehicle));
+      return;
+    }
+
+    const actualStartTime = isFullDay ? "00:00" : startTime;
+    const actualEndTime = isFullDay ? "23:59" : endTime;
+
+    // Get booked slot_ids for this time
+    const { data: bookedBookings } = await supabase
+      .from("bookings")
+      .select("slot_id")
+      .eq("space_id", space._dbId)
+      .eq("booking_date", format(selectedDate, "yyyy-MM-dd"))
+      .neq("status", "cancelled")
+      .lt("start_time", actualEndTime)
+      .gt("end_time", actualStartTime)
+      .not("slot_id", "is", null);
+
+    const bookedSlotIds = new Set((bookedBookings || []).map(b => b.slot_id));
+    const vehicleSlots = slots.filter(s => s.vehicle_type === selectedVehicle);
+    setAvailableSlots(vehicleSlots.filter(s => !bookedSlotIds.has(s.id)));
+  }, [space, selectedVehicle, selectedDate, startTime, endTime, isFullDay, slots]);
+
+  useEffect(() => {
+    checkSlotAvailability();
+  }, [checkSlotAvailability]);
 
   const calculateHours = () => {
     if (isFullDay) return 24;
@@ -68,7 +153,6 @@ const SpaceDetail = () => {
     : 0;
   const serviceFee = totalPrice - basePrice;
 
-  // Get the real DB id for API calls (strip db_ prefix)
   const getDbSpaceId = () => {
     if (!space) return "";
     return space._dbId || space.id;
@@ -77,12 +161,16 @@ const SpaceDetail = () => {
   const validateBooking = (): boolean => {
     const newErrors: Record<string, string> = {};
     if (!selectedDate) newErrors.date = "Please select a date";
-    if (!selectedVehicle) newErrors.vehicle = "Please select a vehicle type";
+    if (!selectedVehicleId) newErrors.vehicle = "Please select a vehicle";
     if (!isFullDay) {
       if (!startTime) newErrors.startTime = "Start time is required";
       if (!endTime) newErrors.endTime = "End time is required";
       if (effectiveHours <= 0) newErrors.endTime = "End time must be after start time";
       if (effectiveHours > 18) newErrors.endTime = "Maximum 18 hours per booking — consider full day";
+    }
+    // Slot selection required if slots exist
+    if (slots.filter(s => s.vehicle_type === selectedVehicle).length > 0 && !selectedSlotId) {
+      newErrors.slot = "Please select a parking slot";
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -106,6 +194,11 @@ const SpaceDetail = () => {
       return;
     }
     if (!space) return;
+    if (userVehicles.length === 0) {
+      toast.info("Please add a vehicle first");
+      navigate("/vehicles");
+      return;
+    }
     if (!validateBooking()) return;
 
     setBooking(true);
@@ -115,7 +208,7 @@ const SpaceDetail = () => {
       const actualStartTime = isFullDay ? "00:00" : startTime;
       const actualEndTime = isFullDay ? "23:59" : endTime;
 
-      // Check capacity before proceeding to payment
+      // Check capacity
       if (space._dbId) {
         const { data: capacityCheck, error: capError } = await supabase.rpc(
           "check_parking_capacity",
@@ -128,9 +221,8 @@ const SpaceDetail = () => {
           }
         );
 
-        if (capError) {
-          console.error("Capacity check error:", capError);
-        } else if (capacityCheck) {
+        if (capError) console.error("Capacity check error:", capError);
+        else if (capacityCheck) {
           const result = capacityCheck as Record<string, unknown>;
           if (!result.available) {
             toast.error((result.error as string) || "No slots available for this time");
@@ -186,6 +278,8 @@ const SpaceDetail = () => {
                     start_time: actualStartTime,
                     end_time: actualEndTime,
                     vehicle_type: selectedVehicle,
+                    vehicle_id: selectedVehicleId || null,
+                    slot_id: selectedSlotId || null,
                   },
                 },
               }
@@ -230,8 +324,10 @@ const SpaceDetail = () => {
   const vehicleIcons: Record<string, React.ReactNode> = {
     bike: <Bike className="w-4 h-4" />,
     car: <Car className="w-4 h-4" />,
-    suv: <Car className="w-5 h-5" />,
   };
+
+  // Filter user vehicles by space's supported types
+  const compatibleVehicles = userVehicles.filter(v => space.vehicleTypes.includes(v.vehicle_type));
 
   return (
     <div className="min-h-screen bg-background">
@@ -244,8 +340,17 @@ const SpaceDetail = () => {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
-              <div className="rounded-2xl overflow-hidden h-72 md:h-96">
-                <img src={space.image} alt={space.title} className="w-full h-full object-cover" />
+              {/* Image gallery */}
+              <div className="rounded-2xl overflow-hidden h-72 md:h-96 relative">
+                {space.images && space.images.length > 1 ? (
+                  <div className="flex gap-2 h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide">
+                    {space.images.map((img: string, i: number) => (
+                      <img key={i} src={img} alt={`${space.title} ${i + 1}`} className="h-full min-w-[80%] object-cover snap-center rounded-xl" />
+                    ))}
+                  </div>
+                ) : (
+                  <img src={space.image} alt={space.title} className="w-full h-full object-cover" />
+                )}
               </div>
               <div>
                 <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground mb-2">{space.title}</h1>
@@ -258,18 +363,17 @@ const SpaceDetail = () => {
               <div className="bg-card rounded-2xl p-6 card-shadow space-y-4">
                 <h3 className="font-display font-bold text-foreground text-lg">Features & Amenities</h3>
                 <div className="flex flex-wrap gap-2">
-                  {space.features.map((f) => (
+                  {space.features.map((f: string) => (
                     <Badge key={f} variant="secondary" className="gap-1 text-sm py-1.5 px-3"><Shield className="w-3.5 h-3.5 text-primary" /> {f}</Badge>
                   ))}
                 </div>
                 <h3 className="font-display font-bold text-foreground text-lg pt-2">Supported Vehicles</h3>
                 <div className="flex gap-2">
-                  {space.vehicleTypes.map((v) => (
+                  {space.vehicleTypes.map((v: string) => (
                     <Badge key={v} variant="outline" className="gap-1 text-sm py-1.5 px-3 capitalize">{vehicleIcons[v]} {v}</Badge>
                   ))}
                 </div>
               </div>
-              {/* Reviews section */}
               <div className="bg-card rounded-2xl p-6 card-shadow space-y-4">
                 <h3 className="font-display font-bold text-foreground text-lg">Reviews</h3>
                 <ReviewsList spaceId={space._dbId || space.id} />
@@ -278,27 +382,42 @@ const SpaceDetail = () => {
 
             {/* Booking sidebar */}
             <div className="lg:col-span-1">
-              <div className="bg-card rounded-2xl p-6 card-shadow sticky top-24 space-y-6">
+              <div className="bg-card rounded-2xl p-6 card-shadow sticky top-24 space-y-5">
                 <div className="text-center">
                   <div className="text-3xl font-bold text-foreground">₹{space.pricePerHour}<span className="text-base font-normal text-muted-foreground">/hr</span></div>
-                  <div className="text-sm text-muted-foreground">or ₹{space.pricePerDay}/day</div>
+                  {space.pricePerDay > 0 && <div className="text-sm text-muted-foreground">or ₹{space.pricePerDay}/day</div>}
                 </div>
 
-                {/* Vehicle type selector */}
+                {/* Vehicle selector */}
                 <div>
-                  <label className="text-sm font-semibold text-foreground mb-2 block">Vehicle Type</label>
-                  <Select value={selectedVehicle} onValueChange={(v) => { setSelectedVehicle(v); setErrors(prev => ({ ...prev, vehicle: "" })); }}>
-                    <SelectTrigger className={cn(errors.vehicle && "border-destructive")}>
-                      <SelectValue placeholder="Select vehicle type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {space.vehicleTypes.map((v) => (
-                        <SelectItem key={v} value={v} className="capitalize">
-                          {v}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <label className="text-sm font-semibold text-foreground mb-2 block">Select Vehicle</label>
+                  {loadingVehicles ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div>
+                  ) : compatibleVehicles.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">
+                      <p>No compatible vehicles found.</p>
+                      <Button variant="link" className="p-0 h-auto text-primary" onClick={() => navigate("/vehicles")}>Add a vehicle →</Button>
+                    </div>
+                  ) : (
+                    <Select value={selectedVehicleId} onValueChange={(vid) => {
+                      setSelectedVehicleId(vid);
+                      const veh = compatibleVehicles.find(v => v.id === vid);
+                      if (veh) setSelectedVehicle(veh.vehicle_type);
+                      setSelectedSlotId("");
+                      setErrors(prev => ({ ...prev, vehicle: "" }));
+                    }}>
+                      <SelectTrigger className={cn(errors.vehicle && "border-destructive")}>
+                        <SelectValue placeholder="Choose your vehicle" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {compatibleVehicles.map((v) => (
+                          <SelectItem key={v.id} value={v.id}>
+                            {v.brand_model} — {v.registration_number} ({v.vehicle_type})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   {errors.vehicle && <p className="text-xs text-destructive mt-1">{errors.vehicle}</p>}
                 </div>
 
@@ -313,7 +432,7 @@ const SpaceDetail = () => {
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">
-                      <Calendar mode="single" selected={selectedDate} onSelect={(d) => { setSelectedDate(d); setErrors(prev => ({ ...prev, date: "" })); }} disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))} initialFocus />
+                      <Calendar mode="single" selected={selectedDate} onSelect={(d) => { setSelectedDate(d); setSelectedSlotId(""); setErrors(prev => ({ ...prev, date: "" })); }} disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))} initialFocus />
                     </PopoverContent>
                   </Popover>
                   {errors.date && <p className="text-xs text-destructive mt-1">{errors.date}</p>}
@@ -322,28 +441,63 @@ const SpaceDetail = () => {
                 {/* Full day toggle */}
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-semibold text-foreground">Full Day Booking</label>
-                  <Switch checked={isFullDay} onCheckedChange={(v) => { setIsFullDay(v); setErrors(prev => ({ ...prev, startTime: "", endTime: "" })); }} />
+                  <Switch checked={isFullDay} onCheckedChange={(v) => { setIsFullDay(v); setSelectedSlotId(""); setErrors(prev => ({ ...prev, startTime: "", endTime: "" })); }} />
                 </div>
 
-                {/* Custom time range */}
+                {/* Time range */}
                 {!isFullDay && (
                   <div className="space-y-3">
                     <label className="text-sm font-semibold text-foreground block">Time Range</label>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <span className="text-xs text-muted-foreground">Start</span>
-                        <Input type="time" value={startTime} onChange={e => { setStartTime(e.target.value); setErrors(prev => ({ ...prev, startTime: "" })); }} className={cn("mt-1", errors.startTime && "border-destructive")} />
+                        <Input type="time" value={startTime} onChange={e => { setStartTime(e.target.value); setSelectedSlotId(""); setErrors(prev => ({ ...prev, startTime: "" })); }} className={cn("mt-1", errors.startTime && "border-destructive")} />
                         {errors.startTime && <p className="text-xs text-destructive mt-1">{errors.startTime}</p>}
                       </div>
                       <div>
                         <span className="text-xs text-muted-foreground">End</span>
-                        <Input type="time" value={endTime} onChange={e => { setEndTime(e.target.value); setErrors(prev => ({ ...prev, endTime: "" })); }} className={cn("mt-1", errors.endTime && "border-destructive")} />
+                        <Input type="time" value={endTime} onChange={e => { setEndTime(e.target.value); setSelectedSlotId(""); setErrors(prev => ({ ...prev, endTime: "" })); }} className={cn("mt-1", errors.endTime && "border-destructive")} />
                         {errors.endTime && <p className="text-xs text-destructive mt-1">{errors.endTime}</p>}
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">
                       Duration: {effectiveHours > 0 ? `${effectiveHours.toFixed(1)} hours` : "Invalid range"}
                     </p>
+                  </div>
+                )}
+
+                {/* Slot selector */}
+                {selectedVehicle && slots.filter(s => s.vehicle_type === selectedVehicle).length > 0 && (
+                  <div>
+                    <label className="text-sm font-semibold text-foreground mb-2 block">Select Parking Slot</label>
+                    {loadingSlots ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading slots...</div>
+                    ) : (
+                      <div className="grid grid-cols-4 gap-2">
+                        {slots.filter(s => s.vehicle_type === selectedVehicle).map(slot => {
+                          const isAvailable = availableSlots.some(a => a.id === slot.id);
+                          const isSelected = selectedSlotId === slot.id;
+                          return (
+                            <button
+                              key={slot.id}
+                              type="button"
+                              disabled={!isAvailable}
+                              className={cn(
+                                "py-2 px-3 rounded-lg text-xs font-mono font-semibold border transition-colors",
+                                isSelected ? "bg-primary text-primary-foreground border-primary" :
+                                isAvailable ? "bg-card border-border hover:border-primary/50 text-foreground" :
+                                "bg-muted/50 text-muted-foreground border-border opacity-50 cursor-not-allowed line-through"
+                              )}
+                              onClick={() => { setSelectedSlotId(slot.id); setErrors(prev => ({ ...prev, slot: "" })); }}
+                            >
+                              {slot.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {errors.slot && <p className="text-xs text-destructive mt-1">{errors.slot}</p>}
+                    <p className="text-xs text-muted-foreground mt-1">{availableSlots.length} of {slots.filter(s => s.vehicle_type === selectedVehicle).length} available</p>
                   </div>
                 )}
 
