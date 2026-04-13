@@ -11,6 +11,7 @@ export interface ParkingSpace {
   reviewCount: number;
   hostName: string;
   image: string;
+  images?: string[]; // Multiple images from DB listings
   lat: number;
   lng: number;
   available: boolean;

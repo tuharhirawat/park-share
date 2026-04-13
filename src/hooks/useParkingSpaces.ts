@@ -34,10 +34,10 @@ const mapDbToSpace = (s: DbParkingSpace): ParkingSpace => ({
   reviewCount: s.review_count,
   hostName: "Host",
   image: s.image_urls[0] || "https://images.unsplash.com/photo-1590674899484-d5640e854abe?w=600&h=400&fit=crop",
+  images: s.image_urls.length > 0 ? s.image_urls : undefined,
   lat: s.lat ?? 0,
   lng: s.lng ?? 0,
   available: s.available,
-  // Keep reference to db id for future use
   _dbId: s.id,
 });
 

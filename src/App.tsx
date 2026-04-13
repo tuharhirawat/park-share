@@ -14,6 +14,8 @@ import SignupPage from "./pages/SignupPage.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import MyBookingsPage from "./pages/MyBookingsPage.tsx";
 import HostDashboard from "./pages/HostDashboard.tsx";
+import ProfilePage from "./pages/ProfilePage.tsx";
+import VehiclesPage from "./pages/VehiclesPage.tsx";
 
 const queryClient = new QueryClient();
 
@@ -34,6 +36,8 @@ const App = () => (
               <Route path="/signup" element={<SignupPage />} />
               <Route path="/my-bookings" element={<MyBookingsPage />} />
               <Route path="/host/dashboard" element={<HostDashboard />} />
+              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/vehicles" element={<VehiclesPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AuthProvider>

@@ -104,6 +104,8 @@ serve(async (req) => {
       start_time: booking_data.start_time,
       end_time: booking_data.end_time || null,
       vehicle_type: booking_data.vehicle_type || "car",
+      vehicle_id: booking_data.vehicle_id || null,
+      slot_id: booking_data.slot_id || null,
       payment_id: razorpay_payment_id,
       status: "confirmed",
     });
