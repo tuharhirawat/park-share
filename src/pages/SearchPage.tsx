@@ -1,6 +1,4 @@
 import { useState, useMemo } from "react";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
 import ParkingCard from "@/components/ParkingCard";
 import { Button } from "@/components/ui/button";
 import { MapPin, SlidersHorizontal, Car, Bike, X, Loader2 } from "lucide-react";
@@ -27,7 +25,6 @@ const SearchPage = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar />
       <div className="pt-20 pb-16">
         <div className="container mx-auto px-4">
           <div className="flex flex-col sm:flex-row gap-3 mb-8">
@@ -97,7 +94,6 @@ const SearchPage = () => {
           )}
         </div>
       </div>
-      <Footer />
     </div>
   );
 };

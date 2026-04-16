@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { AuthProvider } from "@/hooks/use-auth";
+import MainLayout from "@/layouts/MainLayout.tsx";
 import Index from "./pages/Index.tsx";
 import SearchPage from "./pages/SearchPage.tsx";
 import SpaceDetail from "./pages/SpaceDetail.tsx";
@@ -28,16 +29,18 @@ const App = () => (
         <BrowserRouter>
           <AuthProvider>
             <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/search" element={<SearchPage />} />
-              <Route path="/space/:id" element={<SpaceDetail />} />
-              <Route path="/host" element={<HostListingPage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/signup" element={<SignupPage />} />
-              <Route path="/my-bookings" element={<MyBookingsPage />} />
-              <Route path="/host/dashboard" element={<HostDashboard />} />
-              <Route path="/profile" element={<ProfilePage />} />
-              <Route path="/vehicles" element={<VehiclesPage />} />
+              <Route element={<MainLayout />}>
+                <Route path="/" element={<Index />} />
+                <Route path="/search" element={<SearchPage />} />
+                <Route path="/space/:id" element={<SpaceDetail />} />
+                <Route path="/host" element={<HostListingPage />} />
+                <Route path="/my-bookings" element={<MyBookingsPage />} />
+                <Route path="/host/dashboard" element={<HostDashboard />} />
+                <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/vehicles" element={<VehiclesPage />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/signup" element={<SignupPage />} />
+              </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AuthProvider>

@@ -1,6 +1,4 @@
 import { useParams, useNavigate } from "react-router-dom";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
 import { mockSpaces } from "@/lib/mockData";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -312,7 +310,6 @@ const SpaceDetail = () => {
   if (!space) {
     return (
       <div className="min-h-screen bg-background">
-        <Navbar />
         <div className="pt-24 text-center">
           <p className="text-muted-foreground text-lg">Space not found.</p>
           <Button className="mt-4" onClick={() => navigate("/search")}>Back to Search</Button>
@@ -331,7 +328,6 @@ const SpaceDetail = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar />
       <div className="pt-20 pb-16">
         <div className="container mx-auto px-4">
           <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
@@ -531,7 +527,6 @@ const SpaceDetail = () => {
           </div>
         </div>
       </div>
-      <Footer />
     </div>
   );
 };

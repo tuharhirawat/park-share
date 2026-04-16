@@ -1,7 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
@@ -294,19 +292,17 @@ const HostDashboard = () => {
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen bg-background"><Navbar /><div className="pt-24 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div></div>
+      <div className="pt-24 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
     );
   }
 
   if (spaces.length === 0) {
     return (
       <div className="min-h-screen bg-background">
-        <Navbar />
         <div className="pt-24 text-center">
           <p className="text-muted-foreground text-lg mb-4">You haven't listed any parking spaces yet.</p>
           <Button onClick={() => navigate("/host")}>List Your First Space</Button>
         </div>
-        <Footer />
       </div>
     );
   }
@@ -322,7 +318,6 @@ const HostDashboard = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar />
       <div className="pt-20 pb-16">
         <div className="container mx-auto px-4">
           <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground mb-8">Host Dashboard</h1>
@@ -574,7 +569,6 @@ const HostDashboard = () => {
         </DialogContent>
       </Dialog>
 
-      <Footer />
     </div>
   );
 };

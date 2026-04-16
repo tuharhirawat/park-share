@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Car, Menu, X, LogOut, User, ChevronDown } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
+import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -14,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import HostOnboardingModal from "@/components/HostOnboardingModal";
+import { cn } from "@/lib/utils";
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -21,6 +23,7 @@ const Navbar = () => {
   const [hostModalOpen, setHostModalOpen] = useState(false);
   const { user, loading, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (!user) { setIsHost(false); return; }
@@ -48,6 +51,11 @@ const Navbar = () => {
     }
   };
 
+  const desktopNavClass = "text-sm font-medium text-muted-foreground hover:text-foreground transition-colors";
+  const desktopActiveClass = "text-primary";
+  const mobileNavClass = "block text-sm font-medium text-muted-foreground py-2 rounded-md";
+  const mobileActiveClass = "text-primary bg-muted px-2";
+
   return (
     <>
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
@@ -62,22 +70,26 @@ const Navbar = () => {
           </Link>
 
           <div className="hidden md:flex items-center gap-6">
-            <Link to="/search" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+            <NavLink to="/search" className={desktopNavClass} activeClassName={desktopActiveClass}>
               Find Parking
-            </Link>
+            </NavLink>
             {user && (
               <>
-                <button onClick={handleHostAction} className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  onClick={handleHostAction}
+                  className={cn(
+                    desktopNavClass,
+                    location.pathname === "/host" && desktopActiveClass,
+                  )}
+                >
                   List Your Space
                 </button>
-                {isHost && (
-                  <Link to="/host/dashboard" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                    Host Dashboard
-                  </Link>
-                )}
-                <Link to="/my-bookings" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                <NavLink to="/host/dashboard" className={desktopNavClass} activeClassName={desktopActiveClass}>
+                  Host Dashboard
+                </NavLink>
+                <NavLink to="/my-bookings" className={desktopNavClass} activeClassName={desktopActiveClass}>
                   My Bookings
-                </Link>
+                </NavLink>
               </>
             )}
             <ThemeToggle />
@@ -94,7 +106,6 @@ const Navbar = () => {
                   <DropdownMenuContent align="end" className="w-48">
                     <DropdownMenuItem onClick={() => navigate("/profile")}>My Profile</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => navigate("/vehicles")}>My Vehicles</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => navigate("/my-bookings")}>My Bookings</DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={handleLogout} className="text-destructive">
                       <LogOut className="w-4 h-4 mr-2" /> Log Out
@@ -117,18 +128,59 @@ const Navbar = () => {
 
         {isOpen && (
           <div className="md:hidden bg-background border-b border-border px-4 pb-4 space-y-3">
-            <Link to="/search" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>Find Parking</Link>
+            <NavLink
+              to="/search"
+              className={mobileNavClass}
+              activeClassName={mobileActiveClass}
+              onClick={() => setIsOpen(false)}
+            >
+              Find Parking
+            </NavLink>
             {user && (
               <>
-                <button onClick={() => { setIsOpen(false); handleHostAction(); }} className="block text-sm font-medium text-muted-foreground py-2 w-full text-left">
+                <button
+                  onClick={() => { setIsOpen(false); handleHostAction(); }}
+                  className={cn(
+                    "block text-sm font-medium py-2 w-full text-left rounded-md",
+                    location.pathname === "/host" ? mobileActiveClass : "text-muted-foreground",
+                  )}
+                >
                   List Your Space
                 </button>
                 {isHost && (
-                  <Link to="/host/dashboard" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>Host Dashboard</Link>
+                  <NavLink
+                    to="/host/dashboard"
+                    className={mobileNavClass}
+                    activeClassName={mobileActiveClass}
+                    onClick={() => setIsOpen(false)}
+                  >
+                    Host Dashboard
+                  </NavLink>
                 )}
-                <Link to="/my-bookings" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>My Bookings</Link>
-                <Link to="/profile" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>My Profile</Link>
-                <Link to="/vehicles" className="block text-sm font-medium text-muted-foreground py-2" onClick={() => setIsOpen(false)}>My Vehicles</Link>
+                <NavLink
+                  to="/my-bookings"
+                  className={mobileNavClass}
+                  activeClassName={mobileActiveClass}
+                  onClick={() => setIsOpen(false)}
+                >
+                  My Bookings
+                </NavLink>
+                <NavLink
+                  to="/profile"
+                  className={mobileNavClass}
+                  activeClassName={mobileActiveClass}
+                  onClick={() => setIsOpen(false)}
+                >
+                  My Profile
+                </NavLink>
+                <NavLink
+                  to="/vehicles"
+                  className={mobileNavClass}
+                  activeClassName={mobileActiveClass}
+                  onClick={() => setIsOpen(false)}
+                >
+                  My Vehicles
+                </NavLink>
               </>
             )}
             <div className="flex gap-2 pt-2 items-center">

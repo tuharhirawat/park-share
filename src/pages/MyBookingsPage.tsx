@@ -1,7 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -361,7 +359,7 @@ const MyBookingsPage = () => {
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen bg-background"><Navbar /><div className="pt-24 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div></div>
+      <div className="pt-24 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
     );
   }
 
@@ -370,7 +368,6 @@ const MyBookingsPage = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar />
       <div className="pt-20 pb-16">
         <div className="container mx-auto px-4">
           <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground mb-8">My Bookings</h1>
@@ -476,8 +473,6 @@ const MyBookingsPage = () => {
           )}
         </DialogContent>
       </Dialog>
-
-      <Footer />
     </div>
   );
 };

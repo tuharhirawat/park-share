@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Car, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
-import Navbar from "@/components/Navbar";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -46,7 +45,6 @@ const LoginPage = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar />
       <div className="flex items-center justify-center pt-24 pb-12 px-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">

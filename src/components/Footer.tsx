@@ -2,8 +2,8 @@ import { Car } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const Footer = () => (
-  <footer className="bg-card border-t border-border py-16">
-    <div className="container mx-auto px-4">
+  <footer className="bg-card border-t border-border py-13">
+    <div className="container mx-auto px-4 py-4">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
         <div>
           <div className="flex items-center gap-2 mb-4">
@@ -29,7 +29,7 @@ const Footer = () => (
           </div>
         ))}
       </div>
-      <div className="border-t border-border mt-12 pt-6 text-center text-sm text-muted-foreground">
+      <div className="border-t border-border mt-8 pt-4 text-center text-sm text-muted-foreground">
         © {new Date().getFullYear()} Travel Saathi. All rights reserved.
       </div>
     </div>

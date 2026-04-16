@@ -1,5 +1,4 @@
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -191,7 +190,6 @@ const HostListingPage = () => {
   if (isHost === false) {
     return (
       <div className="min-h-screen bg-background">
-        <Navbar />
         <HostOnboardingModal open={hostModalOpen} onOpenChange={(open) => {
           setHostModalOpen(open);
           if (!open) {
@@ -207,14 +205,12 @@ const HostListingPage = () => {
           <p className="text-muted-foreground mb-6">You need to complete host onboarding before listing a space.</p>
           <Button onClick={() => setHostModalOpen(true)}>Start Host Onboarding</Button>
         </div>
-        <Footer />
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar />
       <div className="pt-20 pb-16">
         <div className="container mx-auto px-4 max-w-2xl">
           <div className="text-center mb-10">
@@ -352,7 +348,6 @@ const HostListingPage = () => {
           </Form>
         </div>
       </div>
-      <Footer />
     </div>
   );
 };

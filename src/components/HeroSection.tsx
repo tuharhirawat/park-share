@@ -8,7 +8,7 @@ const HeroSection = () => {
   const navigate = useNavigate();
 
   return (
-    <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden">
+    <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden pt-10 mt-10">
       <div className="absolute inset-0">
         <img src={heroBg} alt="Aerial city parking" className="w-full h-full object-cover" width={1920} height={1080} />
         <div className="absolute inset-0 bg-foreground/60" />
@@ -28,7 +28,7 @@ const HeroSection = () => {
             <span className="text-accent">Earn Everywhere.</span>
           </h1>
           <p className="text-lg md:text-xl text-primary-foreground/80 max-w-2xl mx-auto mb-10">
-            Find safe, affordable parking in seconds — or turn your unused space into passive income. Travel Saathi connects travelers with local hosts.
+            Find safe, affordable parking in seconds - or turn your unused space into passive income. Travel Saathi connects travelers with local hosts.
           </p>
         </motion.div>
 

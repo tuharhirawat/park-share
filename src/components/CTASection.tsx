@@ -27,12 +27,12 @@ const CTASection = () => {
               className="rounded-xl text-base px-8"
               onClick={() => navigate("/host")}
             >
-              List Your Space — It's Free
+              List Your Space - It's Free
             </Button>
             <Button
               size="lg"
-              variant="outline"
-              className="rounded-xl text-base px-8 border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/10"
+              variant="secondary"
+              className="rounded-xl text-base px-8"
               onClick={() => navigate("/search")}
             >
               Find Parking Now
