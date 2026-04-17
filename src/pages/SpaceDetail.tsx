@@ -1,5 +1,4 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { mockSpaces } from "@/lib/mockData";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -48,8 +47,7 @@ const SpaceDetail = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { data: allSpaces = [] } = useParkingSpaces();
-
-  const space = allSpaces.find((s) => s.id === id) || mockSpaces.find((s) => s.id === id);
+  const space = allSpaces.find((s) => s.id === id);
 
   const [isFullDay, setIsFullDay] = useState(false);
   const [startTime, setStartTime] = useState("09:00");

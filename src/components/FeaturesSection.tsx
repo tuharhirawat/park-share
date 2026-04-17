@@ -6,7 +6,7 @@ const features = [
   { icon: Shield, title: "Verified & Safe", desc: "Every host is verified. CCTV, gated, and covered options available." },
   { icon: Clock, title: "Flexible Booking", desc: "Book hourly or daily. Cancel anytime with clear refund policies." },
   { icon: Wallet, title: "Secure Payments", desc: "Pay via UPI, cards, or wallets with complete transaction security." },
-  { icon: Car, title: "Vehicle Filters", desc: "Filter by vehicle type - bike, car, SUV. Find the perfect fit." },
+  { icon: Car, title: "Vehicle Filters", desc: "Filter by vehicle type - bike, car. Find the perfect fit." },
   { icon: Star, title: "Ratings & Reviews", desc: "Community-driven trust with transparent host and user ratings." },
 ];
 

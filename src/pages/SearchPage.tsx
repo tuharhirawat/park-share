@@ -3,25 +3,28 @@ import ParkingCard from "@/components/ParkingCard";
 import { Button } from "@/components/ui/button";
 import { MapPin, SlidersHorizontal, Car, Bike, X, Loader2 } from "lucide-react";
 import { useParkingSpaces } from "@/hooks/useParkingSpaces";
+import { useAuth } from "@/hooks/use-auth";
 
 const cities = ["All", "Bangalore", "Mumbai", "Delhi", "Pune", "Chennai", "Hyderabad"];
-const vehicleOptions = ["bike", "car", "suv"] as const;
+const vehicleOptions = ["bike", "car"] as const;
 
 const SearchPage = () => {
   const [query, setQuery] = useState("");
   const [selectedCity, setSelectedCity] = useState("All");
   const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const { user } = useAuth();
   const { data: spaces = [], isLoading } = useParkingSpaces();
 
   const filtered = useMemo(() => {
     return spaces.filter(s => {
+      if (user && s.userId === user.id) return false;
       if (selectedCity !== "All" && s.city !== selectedCity) return false;
       if (selectedVehicle && !s.vehicleTypes.includes(selectedVehicle as any)) return false;
       if (query && !s.title.toLowerCase().includes(query.toLowerCase()) && !s.city.toLowerCase().includes(query.toLowerCase()) && !s.address.toLowerCase().includes(query.toLowerCase())) return false;
       return true;
     });
-  }, [query, selectedCity, selectedVehicle, spaces]);
+  }, [query, selectedCity, selectedVehicle, spaces, user]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -87,7 +90,7 @@ const SearchPage = () => {
               </div>
               {filtered.length === 0 && (
                 <div className="text-center py-20">
-                  <p className="text-muted-foreground text-lg">No parking spaces found. Try adjusting your filters.</p>
+                  <p className="text-muted-foreground text-lg">No parking spaces available.</p>
                 </div>
               )}
             </>

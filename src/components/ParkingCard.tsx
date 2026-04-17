@@ -2,17 +2,16 @@ import { Star, MapPin, Shield, Car, Bike } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
-import type { ParkingSpace } from "@/lib/mockData";
+import type { ParkingSpace } from "@/hooks/useParkingSpaces";
 
 const vehicleIcons: Record<string, React.ReactNode> = {
   bike: <Bike className="w-3 h-3" />,
   car: <Car className="w-3 h-3" />,
-  suv: <Car className="w-3.5 h-3.5" />,
 };
 
 const ParkingCard = ({ space }: { space: ParkingSpace }) => (
-  <Link to={`/space/${space.id}`} className="group block">
-    <div className="bg-card rounded-2xl overflow-hidden card-shadow hover:card-shadow-hover transition-all duration-300 group-hover:-translate-y-1">
+  <Link to={`/space/${space.id}`} className="group block h-full">
+    <div className="bg-card rounded-2xl overflow-hidden card-shadow hover:card-shadow-hover transition-all duration-300 group-hover:-translate-y-1 h-full flex flex-col">
       <div className="relative h-48 overflow-hidden">
         <img src={space.image} alt={space.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
         {!space.available && (
@@ -28,7 +27,7 @@ const ParkingCard = ({ space }: { space: ParkingSpace }) => (
           )}
         </div>
       </div>
-      <div className="p-4">
+      <div className="p-4 flex flex-col flex-1">
         <div className="flex items-start justify-between mb-2">
           <h3 className="font-display font-bold text-foreground text-base leading-tight">{space.title}</h3>
           <div className="flex items-center gap-1 text-sm shrink-0 ml-2">
@@ -37,18 +36,18 @@ const ParkingCard = ({ space }: { space: ParkingSpace }) => (
             <span className="text-muted-foreground">({space.reviewCount})</span>
           </div>
         </div>
-        <div className="flex items-center gap-1 text-sm text-muted-foreground mb-3">
-          <MapPin className="w-3.5 h-3.5" />
-          {space.address}, {space.city}
+        <div className="flex items-start gap-1 text-sm text-muted-foreground mb-3 h-[4.5rem] overflow-hidden">
+          <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <span>{space.address}, {space.city}</span>
         </div>
-        <div className="flex items-center gap-1.5 mb-4">
+        <div className="flex items-center gap-1.5 mb-4 min-h-7 overflow-hidden">
           {space.vehicleTypes.map(v => (
             <Badge key={v} variant="secondary" className="text-xs gap-1 capitalize">
               {vehicleIcons[v]} {v}
             </Badge>
           ))}
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mt-auto">
           <div>
             <span className="text-lg font-bold text-foreground">₹{space.pricePerHour}</span>
             <span className="text-sm text-muted-foreground">/hr</span>

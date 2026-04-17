@@ -1,6 +1,26 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { mockSpaces, type ParkingSpace } from "@/lib/mockData";
+
+export interface ParkingSpace {
+  id: string;
+  userId?: string;
+  title: string;
+  address: string;
+  city: string;
+  pricePerHour: number;
+  pricePerDay: number;
+  vehicleTypes: ("bike" | "car")[];
+  features: string[];
+  rating: number;
+  reviewCount: number;
+  hostName: string;
+  image: string;
+  images?: string[];
+  lat: number;
+  lng: number;
+  available: boolean;
+  _dbId?: string;
+}
 
 export interface DbParkingSpace {
   id: string;
@@ -23,6 +43,7 @@ export interface DbParkingSpace {
 
 const mapDbToSpace = (s: DbParkingSpace): ParkingSpace => ({
   id: `db_${s.id}`,
+  userId: s.user_id,
   title: s.title,
   address: s.address,
   city: s.city,
@@ -52,13 +73,11 @@ export const useParkingSpaces = () => {
 
       if (error) {
         console.error("Error fetching spaces:", error);
-        // Fallback to mock data on error
-        return mockSpaces;
+        return [];
       }
 
       const dbSpaces = (data as unknown as DbParkingSpace[]).map(mapDbToSpace);
-      // Combine: real data first, then mock data
-      return [...dbSpaces, ...mockSpaces];
+      return dbSpaces;
     },
   });
 };
