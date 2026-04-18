@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -6,16 +6,14 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const RAZORPAY_KEY_SECRET = Deno.env.get("RAZORPAY_KEY_SECRET");
-    if (!RAZORPAY_KEY_SECRET) throw new Error("Razorpay secret not configured");
-
     const authHeader = req.headers.get("Authorization");
+
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Not authenticated" }), {
         status: 401,
@@ -26,16 +24,22 @@ serve(async (req) => {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
+      {
+        global: { headers: { Authorization: authHeader } },
+      }
     );
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
+
     if (userError || !user) {
       return new Response(JSON.stringify({ error: "Not authenticated" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    const RAZORPAY_KEY_SECRET = Deno.env.get("RAZORPAY_KEY_SECRET");
+    if (!RAZORPAY_KEY_SECRET) throw new Error("Razorpay secret not configured");
 
     const {
       razorpay_order_id,
@@ -44,7 +48,6 @@ serve(async (req) => {
       booking_data,
     } = await req.json();
 
-    // Verify signature using HMAC SHA256
     const encoder = new TextEncoder();
     const key = await crypto.subtle.importKey(
       "raw",
@@ -67,8 +70,7 @@ serve(async (req) => {
       });
     }
 
-    // Double-check capacity using service role client
-    const supabaseAdmin = createClient(
+\    const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
@@ -91,8 +93,7 @@ serve(async (req) => {
       });
     }
 
-    // Insert booking with confirmed status
-    const { error: insertError } = await supabase.from("bookings").insert({
+    const { error: insertError } = await supabaseAdmin.from("bookings").insert({
       user_id: user.id,
       space_id: booking_data.space_id,
       space_title: booking_data.space_title,
@@ -118,9 +119,12 @@ serve(async (req) => {
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
   } catch (error) {
     console.error("Error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    const errorMessage = error instanceof Error ? error.message : "Internal server error";
+
+    return new Response(JSON.stringify({ error: errorMessage }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
