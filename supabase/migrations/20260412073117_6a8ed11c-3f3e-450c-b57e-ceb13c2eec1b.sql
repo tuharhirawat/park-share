@@ -35,12 +35,15 @@ USING (
 );
 
 -- Function to check parking capacity before booking
+DROP FUNCTION IF EXISTS public.check_parking_capacity;
+
 CREATE OR REPLACE FUNCTION public.check_parking_capacity(
-  p_space_id text,
+  p_space_id text, -- ✅ IMPORTANT FIX
   p_vehicle_type text,
   p_booking_date date,
   p_start_time time,
-  p_end_time time
+  p_end_time time,
+  p_exclude_booking_id text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -52,39 +55,58 @@ DECLARE
   v_current_bookings integer;
   v_space_uuid uuid;
 BEGIN
-  -- Try to parse space_id as UUID (remove db_ prefix if present)
-  v_space_uuid := CASE
-    WHEN p_space_id LIKE 'db_%' THEN (substring(p_space_id from 4))::uuid
-    ELSE p_space_id::uuid
-  END;
 
-  -- Get total slots for vehicle type
+  -- ✅ Convert safely
+  v_space_uuid := p_space_id::uuid;
+
+  -- ✅ GET TOTAL SLOTS
   IF p_vehicle_type = 'bike' THEN
-    SELECT bike_slots INTO v_total_slots FROM parking_spaces WHERE id = v_space_uuid;
+    SELECT bike_slots INTO v_total_slots
+    FROM parking_spaces
+    WHERE id = v_space_uuid;
   ELSE
-    SELECT car_slots INTO v_total_slots FROM parking_spaces WHERE id = v_space_uuid;
+    SELECT car_slots INTO v_total_slots
+    FROM parking_spaces
+    WHERE id = v_space_uuid;
   END IF;
 
   IF v_total_slots IS NULL THEN
-    RETURN jsonb_build_object('available', false, 'error', 'Space not found');
+    RETURN jsonb_build_object(
+      'available', false,
+      'error', 'Space not found'
+    );
   END IF;
 
-  -- Count overlapping bookings for same space, vehicle type, date
+  -- ✅ COUNT OVERLAPPING BOOKINGS
   SELECT COUNT(*) INTO v_current_bookings
   FROM bookings b
-  WHERE b.space_id = p_space_id
+  WHERE b.space_id = p_space_id -- ✅ FIXED (no cast)
     AND b.vehicle_type = p_vehicle_type
     AND b.booking_date = p_booking_date
     AND b.status != 'cancelled'
+    AND (p_exclude_booking_id IS NULL OR b.id != p_exclude_booking_id)
     AND b.start_time < p_end_time
     AND b.end_time > p_start_time;
 
+  -- ❌ FULL
   IF v_current_bookings >= v_total_slots THEN
-    RETURN jsonb_build_object('available', false, 'error',
-      'All parking spaces for the selected vehicle type are booked at this time. Please select a different time slot.',
-      'current', v_current_bookings, 'total', v_total_slots);
+    RETURN jsonb_build_object(
+      'available', false,
+      'error', 'No slots available for selected time',
+      'current', v_current_bookings,
+      'total', v_total_slots
+    );
   END IF;
 
-  RETURN jsonb_build_object('available', true, 'current', v_current_bookings, 'total', v_total_slots);
+  -- ✅ SUCCESS
+  RETURN jsonb_build_object(
+    'available', true,
+    'current', v_current_bookings,
+    'total', v_total_slots
+  );
+
 END;
 $$;
+
+GRANT EXECUTE ON FUNCTION public.check_parking_capacity(text, text, date, time, time, text)
+TO authenticated;

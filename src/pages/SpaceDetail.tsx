@@ -149,11 +149,6 @@ const SpaceDetail = () => {
     : 0;
   const serviceFee = totalPrice - basePrice;
 
-  const getDbSpaceId = () => {
-    if (!space) return "";
-    return space._dbId || space.id;
-  };
-
   const validateBooking = (): boolean => {
     const newErrors: Record<string, string> = {};
     if (!selectedDate) newErrors.date = "Please select a date";
@@ -200,20 +195,23 @@ const SpaceDetail = () => {
     setBooking(true);
 
     try {
-      const dbSpaceId = getDbSpaceId();
+      const dbSpaceId = space._dbId;
       const actualStartTime = isFullDay ? "00:00" : startTime;
       const actualEndTime = isFullDay ? "23:59" : endTime;
-
+      const formatTime = (t: string) =>
+        t.length === 5 ? `${t}:00` : t;
+      
       // Check capacity
       if (space._dbId) {
         const { data: capacityCheck, error: capError } = await supabase.rpc(
           "check_parking_capacity",
           {
-            p_space_id: dbSpaceId,
+            p_space_id: space._dbId,
             p_vehicle_type: selectedVehicle,
             p_booking_date: format(selectedDate!, "yyyy-MM-dd"),
-            p_start_time: actualStartTime,
-            p_end_time: actualEndTime,
+            p_start_time: formatTime(actualStartTime),
+            p_end_time: formatTime(actualEndTime),
+            p_exclude_booking_id: null,
           }
         );
 

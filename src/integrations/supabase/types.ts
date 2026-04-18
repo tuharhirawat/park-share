@@ -19,8 +19,12 @@ export type Database = {
           booking_date: string | null
           created_at: string
           end_time: string | null
+          has_used_free_extension: boolean
           hours: number
           id: string
+          original_duration_minutes: number | null
+          original_end_time: string | null
+          original_start_time: string | null
           payment_id: string | null
           slot_id: string | null
           space_address: string
@@ -39,8 +43,12 @@ export type Database = {
           booking_date?: string | null
           created_at?: string
           end_time?: string | null
+          has_used_free_extension?: boolean
           hours: number
           id?: string
+          original_duration_minutes?: number | null
+          original_end_time?: string | null
+          original_start_time?: string | null
           payment_id?: string | null
           slot_id?: string | null
           space_address: string
@@ -59,8 +67,12 @@ export type Database = {
           booking_date?: string | null
           created_at?: string
           end_time?: string | null
+          has_used_free_extension?: boolean
           hours?: number
           id?: string
+          original_duration_minutes?: number | null
+          original_end_time?: string | null
+          original_start_time?: string | null
           payment_id?: string | null
           slot_id?: string | null
           space_address?: string
@@ -322,6 +334,7 @@ export type Database = {
         Args: {
           p_booking_date: string
           p_end_time: string
+          p_exclude_booking_id?: string
           p_space_id: string
           p_start_time: string
           p_vehicle_type: string
