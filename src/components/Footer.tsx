@@ -10,7 +10,7 @@ const Footer = () => (
             <div className="w-8 h-8 rounded-lg hero-gradient flex items-center justify-center">
               <Car className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="font-display text-lg font-bold text-foreground">Travel Saathi</span>
+            <span className="font-display text-lg font-bold text-foreground">Park Mitra</span>
           </div>
           <p className="text-sm text-muted-foreground">Peer-to-peer parking marketplace connecting travelers with local space owners.</p>
         </div>
@@ -30,7 +30,7 @@ const Footer = () => (
         ))}
       </div>
       <div className="border-t border-border mt-8 pt-4 text-center text-sm text-muted-foreground">
-        © {new Date().getFullYear()} Travel Saathi. All rights reserved.
+        © {new Date().getFullYear()} Park  Mitra. All rights reserved.
       </div>
     </div>
   </footer>

@@ -14,7 +14,7 @@ const FeaturesSection = () => (
   <section className="py-24 bg-secondary">
     <div className="container mx-auto px-4">
       <div className="text-center mb-16">
-        <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-4">Why Travel Saathi?</h2>
+        <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-4">Why Park Mitra?</h2>
         <p className="text-muted-foreground max-w-lg mx-auto">Everything you need for stress-free parking, all in one place.</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">

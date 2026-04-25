@@ -51,13 +51,13 @@ type SignupForm = z.infer<typeof signupSchema>;
 const TermsContent = () => (
   <div className="prose prose-sm dark:prose-invert max-w-none">
     <h3>Terms & Conditions</h3>
-    <p>By using Travel Saathi, you agree to the following terms:</p>
+    <p>By using Park Mitra, you agree to the following terms:</p>
     <ul>
       <li>You must provide accurate information during registration.</li>
       <li>You are responsible for maintaining the security of your account.</li>
       <li>Bookings are subject to availability and the host's terms.</li>
       <li>Cancellation policies apply as stated at the time of booking.</li>
-      <li>Travel Saathi acts as a platform connecting parking space owners with users.</li>
+      <li>Park Mitra acts as a platform connecting parking space owners with users.</li>
       <li>We reserve the right to suspend accounts that violate our policies.</li>
     </ul>
     <h3>Privacy Policy</h3>
@@ -69,7 +69,7 @@ const TermsContent = () => (
       <li>We do not sell your personal data to third parties.</li>
     </ul>
     <h3>User Agreement</h3>
-    <p>As a user of Travel Saathi:</p>
+    <p>As a user of Park Mitra:</p>
     <ul>
       <li>You agree to use parking spaces responsibly.</li>
       <li>You will vacate the space by the end of your booking period.</li>
@@ -113,7 +113,7 @@ const SignupPage = () => {
         emailRedirectTo: window.location.origin,
       },
     });
-    
+
     if (error) {
       toast.error(error.message);
       setLoading(false);
@@ -142,7 +142,7 @@ const SignupPage = () => {
               <Car className="w-6 h-6 text-primary-foreground" />
             </div>
             <CardTitle className="font-display text-2xl">Create Account</CardTitle>
-            <CardDescription>Join Travel Saathi and start parking smarter</CardDescription>
+            <CardDescription>Join Park Mitra and start parking smarter</CardDescription>
           </CardHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)}>

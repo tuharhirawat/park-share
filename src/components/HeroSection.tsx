@@ -28,7 +28,7 @@ const HeroSection = () => {
             <span className="text-accent">Earn Everywhere.</span>
           </h1>
           <p className="text-lg md:text-xl text-primary-foreground/80 max-w-2xl mx-auto mb-10">
-            Find safe, affordable parking in seconds - or turn your unused space into passive income. Travel Saathi connects travelers with local hosts.
+            Find safe, affordable parking in seconds - or turn your unused space into passive income. Park Mitra connects travelers with local hosts.
           </p>
         </motion.div>
 

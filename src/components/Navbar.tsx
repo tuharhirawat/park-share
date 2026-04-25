@@ -65,7 +65,7 @@ const Navbar = () => {
               <Car className="w-5 h-5 text-primary-foreground" />
             </div>
             <span className="font-display text-xl font-bold text-foreground">
-              Travel <span className="text-primary">Saathi</span>
+              Park <span className="text-primary">Mitra</span>
             </span>
           </Link>
 

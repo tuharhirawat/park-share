@@ -47,7 +47,7 @@ const HostOnboardingModal = ({ open, onOpenChange }: Props) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-xl font-display">Become a Host on Travel Saathi</DialogTitle>
+          <DialogTitle className="text-xl font-display">Become a Host on Park Mitra</DialogTitle>
           <DialogDescription>Turn your unused parking space into a steady income stream</DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh] pr-4">
@@ -57,7 +57,7 @@ const HostOnboardingModal = ({ open, onOpenChange }: Props) => {
                 <IndianRupee className="w-4 h-4 text-primary" /> Earning Opportunity
               </h3>
               <p className="text-sm text-muted-foreground">
-                List your unused parking space and earn money whenever someone books it. 
+                List your unused parking space and earn money whenever someone books it.
                 Set your own prices and availability. Many hosts earn ₹5,000–₹20,000/month.
               </p>
             </div>
@@ -82,7 +82,7 @@ const HostOnboardingModal = ({ open, onOpenChange }: Props) => {
               <ul className="text-sm text-muted-foreground space-y-1.5 list-disc list-inside">
                 <li>You must have legal right to rent the parking space</li>
                 <li>You are responsible for local regulations and permits</li>
-                <li>Travel Saathi charges a <strong>20% platform commission</strong> on each booking</li>
+                <li>Park Mitra charges a <strong>20% platform commission</strong> on each booking</li>
                 <li>Payouts are processed after booking completion</li>
               </ul>
             </div>

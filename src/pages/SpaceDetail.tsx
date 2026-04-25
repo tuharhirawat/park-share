@@ -249,7 +249,7 @@ const SpaceDetail = () => {
         key: orderData.key_id,
         amount: totalPrice * 100,
         currency: "INR",
-        name: "Travel Saathi",
+        name: "Park Mitra",
         description: `Parking: ${space.title}`,
         order_id: orderData.order_id,
         handler: async (response: any) => {

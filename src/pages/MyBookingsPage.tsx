@@ -516,7 +516,7 @@ const MyBookingsPage = () => {
         key: orderData.key_id,
         amount: confirmation.extraCost * 100,
         currency: "INR",
-        name: "Travel Saathi",
+        name: "Park Mitra",
         description: `Parking ${confirmation.type}: ${booking.space_title}`,
         order_id: orderData.order_id,
         handler: async (response: any) => {

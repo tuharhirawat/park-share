@@ -18,7 +18,7 @@ const CTASection = () => {
             Got an Empty Parking Space?
           </h2>
           <p className="text-primary-foreground/80 max-w-lg mx-auto mb-8 text-lg">
-            Turn your unused driveway, garage, or plot into a steady income stream. Join thousands of hosts earning with Travel Saathi.
+            Turn your unused driveway, garage, or plot into a steady income stream. Join thousands of hosts earning with Park Mitra.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Button

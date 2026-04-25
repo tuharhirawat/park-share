@@ -52,7 +52,7 @@ const LoginPage = () => {
               <Car className="w-6 h-6 text-primary-foreground" />
             </div>
             <CardTitle className="font-display text-2xl">Welcome Back</CardTitle>
-            <CardDescription>Log in to your Travel Saathi account</CardDescription>
+            <CardDescription>Log in to your Park Mitra account</CardDescription>
           </CardHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)}>
