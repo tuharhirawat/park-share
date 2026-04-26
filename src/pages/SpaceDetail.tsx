@@ -3,24 +3,22 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import SpaceImageCarousel from "@/components/SpaceImageCarousel";
 import { Star, MapPin, Shield, Clock, Car, Bike, ArrowLeft, Navigation, CalendarIcon, Loader2 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Calendar } from "@/components/ui/calendar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useParkingSpaces } from "@/hooks/useParkingSpaces";
+import ApproximateLocationMap from "@/components/ApproximateLocationMap";
 import ReviewsList from "@/components/ReviewsList";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select";
+import { getCurrentTime, isToday, isPastTime } from "@/lib/time";
 
 declare global {
   interface Window {
@@ -42,6 +40,14 @@ interface ParkingSlot {
   is_active: boolean;
 }
 
+const PLATFORM_FEE_PERCENTAGE = 0.2; // 20% platform fee
+const MIN_DURATION = 30;
+const STEP_DURATION = 15;
+const END_OF_DAY_MINUTES = (23 * 60) + 59;
+const LATEST_VALID_START = END_OF_DAY_MINUTES - MIN_DURATION;
+
+const formatTime = (t: string) => t.length === 5 ? `${t}:00` : t;
+
 const SpaceDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -51,13 +57,16 @@ const SpaceDetail = () => {
 
   const [isFullDay, setIsFullDay] = useState(false);
   const [startTime, setStartTime] = useState("09:00");
-  const [endTime, setEndTime] = useState("11:00");
+  const [duration, setDuration] = useState(30);  //30 mins default minimum duration
   const [booking, setBooking] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [selectedVehicle, setSelectedVehicle] = useState<string>("");
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>("");
   const [selectedSlotId, setSelectedSlotId] = useState<string>("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [bookingClosedToday, setBookingClosedToday] = useState(false);
+  const [timeWarningOpen, setTimeWarningOpen] = useState(false);
+  const [lastValidTime, setLastValidTime] = useState("09:00");
 
   // User's vehicles
   const [userVehicles, setUserVehicles] = useState<UserVehicle[]>([]);
@@ -98,15 +107,69 @@ const SpaceDetail = () => {
       });
   }, [space]);
 
+  useEffect(() => {
+    if (!selectedDate) {
+      setBookingClosedToday(false);
+      return;
+    }
+    if (!isToday(selectedDate)) {
+      setBookingClosedToday(false);
+      return;
+    }
+    const now = getCurrentTime();
+    if (timeToMinutes(now) > LATEST_VALID_START) {
+      setBookingClosedToday(true);
+      setSelectedSlotId("");
+      return;
+    }
+    setBookingClosedToday(false);
+    if (isPastTime(selectedDate, startTime)) {
+      setStartTime(now);
+      setSelectedSlotId("");
+    }
+  }, [selectedDate, startTime]);
+
+  useEffect(() => {
+    if (
+      timeToMinutes(startTime)
+      <= LATEST_VALID_START
+    ) {
+      setLastValidTime(startTime);
+    }
+  }, [startTime]);
+
+  const calculateEndTime = (start: string, duration: number) => {
+    const [h, m] = start.split(":").map(Number);
+    const totalMinutes = h * 60 + m + duration;
+
+    const endH = Math.floor(totalMinutes / 60);
+    const endM = totalMinutes % 60;
+
+    return `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+  };
+
+  const timeToMinutes = (time: string) => {
+    const [h, m] = time.split(":").map(Number);
+    return h * 60 + m;
+  };
+
+  const canIncrease = timeToMinutes(startTime) + duration + STEP_DURATION <= END_OF_DAY_MINUTES;
+  const canDecrease = duration > MIN_DURATION;
+
+  const updateDuration = (minutes: number) => {
+    setDuration(minutes);
+    setSelectedSlotId("");
+  }
+
   // Filter available slots when vehicle type / date / time change
   const checkSlotAvailability = useCallback(async () => {
     if (!space?._dbId || !selectedVehicle || !selectedDate) {
-      setAvailableSlots(slots.filter(s => s.vehicle_type === selectedVehicle));
+      setAvailableSlots(filteredVehicleSlots);
       return;
     }
 
     const actualStartTime = isFullDay ? "00:00" : startTime;
-    const actualEndTime = isFullDay ? "23:59" : endTime;
+    const actualEndTime = isFullDay ? "23:59" : calculateEndTime(startTime, duration);
 
     // Get booked slot_ids for this time
     const { data: bookedBookings } = await supabase
@@ -115,52 +178,49 @@ const SpaceDetail = () => {
       .eq("space_id", space._dbId)
       .eq("booking_date", format(selectedDate, "yyyy-MM-dd"))
       .neq("status", "cancelled")
-      .lt("start_time", actualEndTime)
-      .gt("end_time", actualStartTime)
+      .lt("start_time", formatTime(actualEndTime))
+      .gt("end_time", formatTime(actualStartTime))
       .not("slot_id", "is", null);
 
     const bookedSlotIds = new Set((bookedBookings || []).map(b => b.slot_id));
-    const vehicleSlots = slots.filter(s => s.vehicle_type === selectedVehicle);
+    const vehicleSlots = filteredVehicleSlots;
     setAvailableSlots(vehicleSlots.filter(s => !bookedSlotIds.has(s.id)));
-  }, [space, selectedVehicle, selectedDate, startTime, endTime, isFullDay, slots]);
+  }, [space, selectedVehicle, selectedDate, startTime, duration, isFullDay, slots]);
 
   useEffect(() => {
     checkSlotAvailability();
   }, [checkSlotAvailability]);
 
   const calculateHours = () => {
-    if (isFullDay) return 24;
-    const [sh, sm] = startTime.split(":").map(Number);
-    const [eh, em] = endTime.split(":").map(Number);
-    const diff = (eh * 60 + em - sh * 60 - sm) / 60;
-    return Math.max(0, diff);
+    if (!selectedDate) return 0;
+    if (isFullDay) {
+      if (isToday(selectedDate)) {
+        const now = new Date();
+        const endOfDay = new Date(selectedDate);
+        endOfDay.setHours(23, 59, 0, 0);
+        return (endOfDay.getTime() - now.getTime()) / (1000 * 60 * 60);
+      }
+      return 24;
+    }
+    return duration / 60;
   };
-
-  const effectiveHours = isFullDay ? 24 : calculateHours();
-  const totalPrice = isFullDay && space
-    ? Math.round(space.pricePerDay * 1.1)
-    : space
-    ? Math.round(space.pricePerHour * effectiveHours * 1.1)
-    : 0;
-  const basePrice = isFullDay && space
-    ? space.pricePerDay
-    : space
-    ? Math.round(space.pricePerHour * effectiveHours)
-    : 0;
-  const serviceFee = totalPrice - basePrice;
 
   const validateBooking = (): boolean => {
     const newErrors: Record<string, string> = {};
     if (!selectedDate) newErrors.date = "Please select a date";
     if (!selectedVehicleId) newErrors.vehicle = "Please select a vehicle";
+    if (!isFullDay && selectedDate) {
+      if (isPastTime(selectedDate, startTime)) {
+        newErrors.startTime = "Start time cannot be in the past";
+      }
+    }
     if (!isFullDay) {
       if (!startTime) newErrors.startTime = "Start time is required";
-      if (!endTime) newErrors.endTime = "End time is required";
-      if (effectiveHours <= 0) newErrors.endTime = "End time must be after start time";
-      if (effectiveHours > 18) newErrors.endTime = "Maximum 18 hours per booking — consider full day";
+      if (duration < 30) newErrors.duration = "Duration must be at least 30 minutes";
+      // if (effectiveHours > 18) newErrors.endTime = "Maximum 18 hours per booking — consider full day";
     }
     // Slot selection required if slots exist
-    if (slots.filter(s => s.vehicle_type === selectedVehicle).length > 0 && !selectedSlotId) {
+    if (filteredVehicleSlots.length > 0 && !selectedSlotId) {
       newErrors.slot = "Please select a parking slot";
     }
     setErrors(newErrors);
@@ -191,16 +251,21 @@ const SpaceDetail = () => {
       return;
     }
     if (!validateBooking()) return;
+    if (!isFullDay && selectedDate) {
+      if (isPastTime(selectedDate, startTime)) {
+        toast.error("Selected time is no longer valid");
+        setBooking(false);
+        return;
+      }
+    }
 
     setBooking(true);
 
     try {
       const dbSpaceId = space._dbId;
       const actualStartTime = isFullDay ? "00:00" : startTime;
-      const actualEndTime = isFullDay ? "23:59" : endTime;
-      const formatTime = (t: string) =>
-        t.length === 5 ? `${t}:00` : t;
-      
+      const actualEndTime = isFullDay ? "23:59" : calculateEndTime(startTime, duration);
+
       // Check capacity
       if (space._dbId) {
         const { data: capacityCheck, error: capError } = await supabase.rpc(
@@ -266,7 +331,7 @@ const SpaceDetail = () => {
                     space_title: space.title,
                     space_address: space.address,
                     space_city: space.city,
-                    hours: Math.ceil(effectiveHours),
+                    duration_minutes: Math.floor(effectiveHours * 60),
                     total_price: totalPrice,
                     booking_date: format(selectedDate!, "yyyy-MM-dd"),
                     start_time: actualStartTime,
@@ -314,10 +379,31 @@ const SpaceDetail = () => {
     );
   }
 
+  const effectiveHours = calculateHours();
+  let basePrice = 0;
+
+  if (isFullDay) {
+    if (selectedDate && isToday(selectedDate)) {
+      basePrice = Math.round(space.pricePerHour * effectiveHours);
+    } else {
+      basePrice = space.pricePerDay;
+    }
+  } else {
+    basePrice = Math.round(space.pricePerHour * effectiveHours);
+  }
+
+  const serviceFee = Math.round(basePrice * PLATFORM_FEE_PERCENTAGE);
+  const totalPrice = basePrice + serviceFee;
+
   const vehicleIcons: Record<string, React.ReactNode> = {
     bike: <Bike className="w-4 h-4" />,
     car: <Car className="w-4 h-4" />,
   };
+
+  const filteredVehicleSlots =
+    slots.filter(
+      s => s.vehicle_type === selectedVehicle
+    );
 
   // Filter user vehicles by space's supported types
   const compatibleVehicles = userVehicles.filter(v => space.vehicleTypes.includes(v.vehicle_type as any));
@@ -332,25 +418,20 @@ const SpaceDetail = () => {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
-              {/* Image gallery */}
-              <div className="rounded-2xl overflow-hidden h-72 md:h-96 relative">
-                {space.images && space.images.length > 1 ? (
-                  <div className="flex gap-2 h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide">
-                    {space.images.map((img: string, i: number) => (
-                      <img key={i} src={img} alt={`${space.title} ${i + 1}`} className="h-full min-w-[80%] object-cover snap-center rounded-xl" />
-                    ))}
-                  </div>
-                ) : (
-                  <img src={space.image} alt={space.title} className="w-full h-full object-cover" />
-                )}
-              </div>
+              {/* Premium Hero Gallery */}
+              <SpaceImageCarousel
+                title={space.title}
+                images={space.images}
+                image={space.image}
+              />
               <div>
                 <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground mb-2">{space.title}</h1>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
-                  <span className="flex items-center gap-1"><MapPin className="w-4 h-4" /> {space.address}, {space.city}</span>
-                  <span className="flex items-center gap-1"><Star className="w-4 h-4 text-accent fill-accent" /> {space.rating} ({space.reviewCount} reviews)</span>
+                  <span className="flex items-center gap-1"><MapPin className="w-4 h-4" />Approximate location in {space.city}</span>
+                  {/* <span className="flex items-center gap-1"><Star className="w-4 h-4 text-accent fill-accent" /> {space.rating} ({space.reviewCount} reviews)</span> */}
                 </div>
                 <p className="text-muted-foreground">Hosted by <span className="font-semibold text-foreground">{space.hostName}</span></p>
+                <ApproximateLocationMap lat={space.lat} lng={space.lng} />
               </div>
               <div className="bg-card rounded-2xl p-6 card-shadow space-y-4">
                 <h3 className="font-display font-bold text-foreground text-lg">Features & Amenities</h3>
@@ -433,24 +514,160 @@ const SpaceDetail = () => {
                 {/* Full day toggle */}
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-semibold text-foreground">Full Day Booking</label>
-                  <Switch checked={isFullDay} onCheckedChange={(v) => { setIsFullDay(v); setSelectedSlotId(""); setErrors(prev => ({ ...prev, startTime: "", endTime: "" })); }} />
+                  <Switch checked={isFullDay}
+                    onCheckedChange={(v) => {
+                      setIsFullDay(v);
+                      setSelectedSlotId("");
+                      setStartTime(v ? "00:00" : getCurrentTime());
+                      setErrors(prev => ({ ...prev, startTime: "", duration: "" }));
+                    }}
+                  />
                 </div>
 
                 {/* Time range */}
-                {!isFullDay && (
+                {!isFullDay && !bookingClosedToday && (
                   <div className="space-y-3">
                     <label className="text-sm font-semibold text-foreground block">Time Range</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
+                    <div className="space-y-3">
+
+                      {/* duration based time selection */}
+                      <div className="space-y-3">
+                        <label className="text-sm font-semibold text-foreground block">Start Time</label>
+
+                        <Input
+                          type="time"
+                          value={startTime}
+                          min={isToday(selectedDate) ? getCurrentTime() : "00:00"}
+                          max={"23:29"}
+                          onChange={(e) => {
+                            const value = e.target.value;
+
+                            if (selectedDate && isToday(selectedDate) && isPastTime(selectedDate, value)) {
+                              toast.error("Cannot select past time");
+                              return;
+                            }
+
+                            if (timeToMinutes(value) > LATEST_VALID_START) {
+                              setTimeWarningOpen(true);
+                              return;
+                            }
+
+                            setStartTime(value);
+                            setSelectedSlotId("");
+
+                            if (
+                              timeToMinutes(value) + duration
+                              > END_OF_DAY_MINUTES
+                            ) {
+                              setDuration(MIN_DURATION);
+                            }
+                          }}
+                        />
+
+                        <label className="text-sm font-semibold text-foreground block">
+                          Duration
+                        </label>
+
+                        <div className="flex items-center justify-between border rounded-xl p-3">
+
+                          <button
+                            type="button"
+                            onClick={() => updateDuration(duration - STEP_DURATION)}
+                            disabled={!canDecrease}
+                            className={cn(
+                              "w-10 h-10 rounded-full border text-lg font-bold",
+                              !canDecrease &&
+                              "opacity-40 cursor-not-allowed"
+                            )}
+                          >
+                            -
+                          </button>
+
+                          <div className="text-center">
+                            <p className="font-semibold">
+                              {duration} mins
+                            </p>
+
+                            <p className="text-xs text-muted-foreground">
+                              {startTime} → {calculateEndTime(startTime, duration)}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => updateDuration(duration + STEP_DURATION)}
+                            disabled={!canIncrease}
+                            className={cn(
+                              "w-10 h-10 rounded-full border text-lg font-bold",
+                              !canIncrease &&
+                              "opacity-40 cursor-not-allowed"
+                            )}
+                          >
+                            +
+                          </button>
+
+                        </div>
+
+                        {errors.duration && (
+                          <p className="text-xs text-destructive">{errors.duration}</p>
+                        )}
+                      </div>
+
+                      {/* free hand time selection */}
+                      {/* <div>
                         <span className="text-xs text-muted-foreground">Start</span>
-                        <Input type="time" value={startTime} onChange={e => { setStartTime(e.target.value); setSelectedSlotId(""); setErrors(prev => ({ ...prev, startTime: "" })); }} className={cn("mt-1", errors.startTime && "border-destructive")} />
+                        <Input
+                          type="time"
+                          value={startTime}
+                          min={isToday(selectedDate) ? getCurrentTime() : "00:00"}
+                          onFocus={() => {
+                            if (isToday(selectedDate) && isPastTime(selectedDate, startTime)) {
+                              const now = getCurrentTime();
+                              setStartTime(now);
+                              setSelectedSlotId("");
+                            }
+                          }}
+                          onChange={(e) => {
+                            const value = e.target.value;
+
+                            if (selectedDate && isToday(selectedDate) && isPastTime(selectedDate, value)) {
+                              toast.error("Cannot select past time");
+                              return;
+                            }
+
+                            setStartTime(value);
+                            setSelectedSlotId("");
+                            setErrors(prev => ({ ...prev, startTime: "" }));
+                          }}
+                        />
                         {errors.startTime && <p className="text-xs text-destructive mt-1">{errors.startTime}</p>}
                       </div>
                       <div>
                         <span className="text-xs text-muted-foreground">End</span>
-                        <Input type="time" value={endTime} onChange={e => { setEndTime(e.target.value); setSelectedSlotId(""); setErrors(prev => ({ ...prev, endTime: "" })); }} className={cn("mt-1", errors.endTime && "border-destructive")} />
+                        <Input
+                          type="time"
+                          value={endTime}
+                          min={startTime}
+                          onFocus={() => {
+                            if (endTime <= startTime) {
+                              setEndTime(startTime);
+                            }
+                          }}
+                          onChange={(e) => {
+                            const value = e.target.value;
+
+                            if (value <= startTime) {
+                              toast.error("End time must be after start time");
+                              return;
+                            }
+
+                            setEndTime(value);
+                            setSelectedSlotId("");
+                            setErrors(prev => ({ ...prev, endTime: "" }));
+                          }}
+                        />
                         {errors.endTime && <p className="text-xs text-destructive mt-1">{errors.endTime}</p>}
-                      </div>
+                      </div> */}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       Duration: {effectiveHours > 0 ? `${effectiveHours.toFixed(1)} hours` : "Invalid range"}
@@ -458,15 +675,23 @@ const SpaceDetail = () => {
                   </div>
                 )}
 
+                {bookingClosedToday && (
+                  <div className="p-3 bg-destructive/10 rounded-lg border border-destructive/20">
+                    <p className="text-sm text-destructive">
+                      Booking is closed for today. Please select a future date.
+                    </p>
+                  </div>
+                )}
+
                 {/* Slot selector */}
-                {selectedVehicle && slots.filter(s => s.vehicle_type === selectedVehicle).length > 0 && (
+                {selectedVehicle && filteredVehicleSlots.length > 0 && (
                   <div>
                     <label className="text-sm font-semibold text-foreground mb-2 block">Select Parking Slot</label>
                     {loadingSlots ? (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading slots...</div>
                     ) : (
                       <div className="grid grid-cols-4 gap-2">
-                        {slots.filter(s => s.vehicle_type === selectedVehicle).map(slot => {
+                        {filteredVehicleSlots.map(slot => {
                           const isAvailable = availableSlots.some(a => a.id === slot.id);
                           const isSelected = selectedSlotId === slot.id;
                           return (
@@ -477,8 +702,8 @@ const SpaceDetail = () => {
                               className={cn(
                                 "py-2 px-3 rounded-lg text-xs font-mono font-semibold border transition-colors",
                                 isSelected ? "bg-primary text-primary-foreground border-primary" :
-                                isAvailable ? "bg-card border-border hover:border-primary/50 text-foreground" :
-                                "bg-muted/50 text-muted-foreground border-border opacity-50 cursor-not-allowed line-through"
+                                  isAvailable ? "bg-card border-border hover:border-primary/50 text-foreground" :
+                                    "bg-muted/50 text-muted-foreground border-border opacity-50 cursor-not-allowed line-through"
                               )}
                               onClick={() => { setSelectedSlotId(slot.id); setErrors(prev => ({ ...prev, slot: "" })); }}
                             >
@@ -489,14 +714,23 @@ const SpaceDetail = () => {
                       </div>
                     )}
                     {errors.slot && <p className="text-xs text-destructive mt-1">{errors.slot}</p>}
-                    <p className="text-xs text-muted-foreground mt-1">{availableSlots.length} of {slots.filter(s => s.vehicle_type === selectedVehicle).length} available</p>
+                    <p className="text-xs text-muted-foreground mt-1">{availableSlots.length} of {filteredVehicleSlots.length} available</p>
+                    {availableSlots.length === 0 && (
+                      <p className="text-xs text-destructive mt-2">
+                        No slots available for selected time
+                      </p>
+                    )}
                   </div>
                 )}
 
                 <div className="border-t border-border pt-4 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">
-                      {isFullDay ? "Full day rate" : `₹${space.pricePerHour} × ${effectiveHours.toFixed(1)} hrs`}
+                      {isFullDay
+                        ? (selectedDate && isToday(selectedDate)
+                          ? `₹${space.pricePerHour} × ${effectiveHours.toFixed(1)} hrs`
+                          : "Full day rate")
+                        : `₹${space.pricePerHour} × ${effectiveHours.toFixed(1)} hrs`}
                     </span>
                     <span className="text-foreground font-medium">₹{basePrice}</span>
                   </div>
@@ -510,17 +744,73 @@ const SpaceDetail = () => {
                   </div>
                 </div>
 
-                <Button className="w-full rounded-xl gap-2" size="lg" disabled={!space.available || booking} onClick={handleBookNow}>
+                <Button className="w-full rounded-xl gap-2" size="lg"
+                  disabled={
+                    !space.available ||
+                    bookingClosedToday ||
+                    booking ||
+                    !selectedDate ||
+                    !selectedVehicleId ||
+                    (
+                      filteredVehicleSlots.length > 0 &&
+                      (
+                        availableSlots.length === 0 ||
+                        !selectedSlotId
+                      )
+                    )
+                  }
+                  onClick={handleBookNow}
+                >
                   <Clock className="w-4 h-4" />
                   {booking ? "Processing..." : space.available ? "Pay & Book Now" : "Unavailable"}
                 </Button>
-                <Button variant="outline" className="w-full rounded-xl gap-2" size="lg"
+                {/* <Button variant="outline" className="w-full rounded-xl gap-2" size="lg"
                   onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${space.lat},${space.lng}`, "_blank")}>
                   <Navigation className="w-4 h-4" /> Get Directions
-                </Button>
+                </Button> */}
               </div>
             </div>
           </div>
+
+          <Dialog
+            open={timeWarningOpen}
+            onOpenChange={(open) => {
+              if (!open) return;
+              setTimeWarningOpen(open);
+            }}
+          >
+            <DialogContent
+              className="w-[92vw] max-w-[420px] rounded-2xl p-6 sm:p-7 text-center mx-auto"
+              onPointerDownOutside={(e) => e.preventDefault()}
+              onEscapeKeyDown={(e) => e.preventDefault()}
+            >
+              <div className="flex flex-col items-center justify-center text-center space-y-5">
+                <DialogHeader className="w-full space-y-3 text-center">
+                  <DialogTitle
+                    className="text-lg sm:text-xl font-semibold text-center leading-snug w-full"
+                  >
+                    Booking Not Possible
+                  </DialogTitle>
+                </DialogHeader>
+
+                <p className="text-sm sm:text-base text-muted-foreground leading-relaxed text-center max-w-[280px] sm:max-w-[320px] mx-auto">
+                  Start time must be 23:29 or earlier to proceed with booking.
+                </p>
+
+                <Button
+                  className="w-full sm:w-full mt-2 rounded-xl"
+                  onClick={() => {
+                    setStartTime(lastValidTime);
+                    setTimeWarningOpen(false);
+                  }}
+                >
+                  Okay
+                </Button>
+
+              </div>
+
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </div>

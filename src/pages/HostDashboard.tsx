@@ -340,18 +340,18 @@ const HostDashboard = () => {
               <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1"><IndianRupee className="w-4 h-4" /> Earnings</div>
               <p className="text-2xl font-bold text-foreground">₹{totalEarnings.toLocaleString()}</p>
             </div>
-            <div className="bg-card rounded-2xl p-5 card-shadow">
+            {/* <div className="bg-card rounded-2xl p-5 card-shadow">
               <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1"><Star className="w-4 h-4" /> Avg Rating</div>
               <p className="text-2xl font-bold text-foreground">{avgRating}</p>
-            </div>
+            </div> */}
           </div>
 
           <Tabs defaultValue="listings" className="space-y-6">
-            <TabsList className="grid w-full max-w-2xl grid-cols-5">
+            <TabsList className="grid w-full max-w-2xl grid-cols-4">
               <TabsTrigger value="listings">My Listings</TabsTrigger>
               <TabsTrigger value="earnings">Earnings</TabsTrigger>
               <TabsTrigger value="analytics">Analytics</TabsTrigger>
-              <TabsTrigger value="reviews">Reviews</TabsTrigger>
+              {/* <TabsTrigger value="reviews">Reviews</TabsTrigger> */}
               <TabsTrigger value="live">Live Status</TabsTrigger>
             </TabsList>
 
@@ -461,7 +461,7 @@ const HostDashboard = () => {
             </TabsContent>
 
             {/* Reviews */}
-            <TabsContent value="reviews">
+            {/* <TabsContent value="reviews">
               {reviews.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">No reviews yet.</p>
               ) : (
@@ -485,7 +485,7 @@ const HostDashboard = () => {
                   })}
                 </div>
               )}
-            </TabsContent>
+            </TabsContent> */}
 
             {/* Live Status */}
             <TabsContent value="live">

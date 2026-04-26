@@ -86,8 +86,8 @@ serve(async (req: Request) => {
       p_space_id: booking_data.space_id,
       p_vehicle_type: booking_data.vehicle_type || "car",
       p_booking_date: booking_data.booking_date,
-      p_start_time: formatTime(booking_data.start_time),
-      p_end_time: formatTime(booking_data.end_time) || "23:59:00",
+      p_start_time: `${formatTime(booking_data.start_time)}`,
+      p_end_time: `${formatTime(booking_data.end_time)}`,
       p_exclude_booking_id: booking_data.booking_id
         ? booking_data.booking_id
         : null,
@@ -103,15 +103,27 @@ serve(async (req: Request) => {
       });
     }
     
-    const startTime = formatTime(booking_data.start_time);
-    const endTime = formatTime(booking_data.end_time);
+    if (!booking_data.start_time || !booking_data.end_time) {
+      throw new Error("Start time and end time are required");
+    }
+
+    const startTime = formatTime(booking_data.start_time)!;
+    const endTime = formatTime(booking_data.end_time)!;
     const bookingDate = booking_data.booking_date;
-    const startDateTime = startTime
-      ? `${bookingDate} ${startTime}`
-      : null;
-    const endDateTime = endTime
-      ? `${bookingDate} ${endTime}`
-      : null;
+
+    // 🔐 Fetch correct price per hour
+    const { data: space } = await supabaseAdmin
+      .from("parking_spaces")
+      .select("price_per_hour")
+      .eq("id", booking_data.space_id)
+      .single();
+
+    if (!space) {
+      throw new Error("Failed to fetch price_per_hour");
+    }
+
+    const durationMinutes = booking_data.duration_minutes || 0;
+    const safeTotalPrice = booking_data.total_price;
 
     if (booking_data.booking_id) {
       const { error: updateError } = await supabaseAdmin
@@ -120,11 +132,11 @@ serve(async (req: Request) => {
           space_title: booking_data.space_title,
           space_address: booking_data.space_address,
           space_city: booking_data.space_city,
-          hours: booking_data.hours,
-          total_price: booking_data.total_price,
+          duration_minutes: durationMinutes,
+          total_price: safeTotalPrice,
           booking_date: bookingDate,
-          start_time: startDateTime,
-          end_time: endDateTime,
+          start_time: startTime,
+          end_time: endTime,
           vehicle_type: booking_data.vehicle_type || "car",
           vehicle_id: booking_data.vehicle_id || null,
           slot_id: booking_data.slot_id || null,
@@ -134,6 +146,10 @@ serve(async (req: Request) => {
             booking_data.has_used_free_extension !== undefined
               ? booking_data.has_used_free_extension
               : false,
+          free_extension_minutes_used:
+            booking_data.free_extension_minutes_used !== undefined
+              ? booking_data.free_extension_minutes_used
+              : 0,
         })
         .eq("id", booking_data.booking_id)
 
@@ -148,13 +164,10 @@ serve(async (req: Request) => {
         });
       }
     } else {
-      let originalDurationMinutes = 0;
 
-      if (startTime && endTime) {
-        const [sh, sm] = startTime.split(":").map(Number);
-        const [eh, em] = endTime.split(":").map(Number);
-        originalDurationMinutes = (eh * 60 + em) - (sh * 60 + sm);
-      }
+      const originalDurationMinutes = booking_data.duration_minutes || 0;
+      const startDateTime = `${booking_data.booking_date} ${startTime}`;
+      const endDateTime = `${booking_data.booking_date} ${endTime}`;
 
       const { error: insertError } = await supabaseAdmin.from("bookings").insert({
         user_id: user.id,
@@ -162,11 +175,11 @@ serve(async (req: Request) => {
         space_title: booking_data.space_title,
         space_address: booking_data.space_address,
         space_city: booking_data.space_city,
-        hours: booking_data.hours,
-        total_price: booking_data.total_price,
+        duration_minutes: originalDurationMinutes,
+        total_price: safeTotalPrice,
         booking_date: bookingDate,
-        start_time: startDateTime,
-        end_time: endDateTime,
+        start_time: startTime,
+        end_time: endTime,
         vehicle_type: booking_data.vehicle_type || "car",
         vehicle_id: booking_data.vehicle_id || null,
         slot_id: booking_data.slot_id || null,
@@ -176,6 +189,7 @@ serve(async (req: Request) => {
         original_end_time: endDateTime,
         original_duration_minutes: originalDurationMinutes,
         has_used_free_extension: false,
+        free_extension_minutes_used: 0,
       });
 
       if (insertError) {

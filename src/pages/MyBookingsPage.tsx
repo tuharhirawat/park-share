@@ -4,14 +4,11 @@ import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Calendar, Clock, MapPin, Trash2, Loader2, Star, Filter, CalendarIcon, RefreshCw, TimerReset, AlertCircle } from "lucide-react";
+import { Calendar, Clock, MapPin, Trash2, Loader2, Star, Filter, TimerReset, AlertCircle, Navigation } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar as CalendarPicker } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -34,6 +31,7 @@ interface Booking {
   space_address: string;
   space_city: string;
   hours: number;
+  duration_minutes: number;
   total_price: number;
   status: string;
   booking_date: string | null;
@@ -48,6 +46,9 @@ interface Booking {
   original_end_time: string | null;
   original_duration_minutes: number | null;
   has_used_free_extension: boolean;
+  free_extension_minutes_used: number | null;
+  space_lat?: number;
+  space_lng?: number;
 }
 
 interface Review {
@@ -68,6 +69,9 @@ interface ExtensionConfirmation {
   rescheduleStartTime: string;
   rescheduleEndTime: string;
   isPaidExtension: boolean;
+  freeMinutesApplied: number;
+  nextFreeExtensionMinutesUsed: number;
+  nextHasUsedFreeExtension: boolean;
   type: "extend" | "reschedule"; // distinguish between extend and reschedule
 }
 
@@ -75,22 +79,78 @@ type RescheduleConfirmation = ExtensionConfirmation; // backward compatibility
 
 type ComputedStatus = "upcoming" | "active" | "completed" | "cancelled";
 
-const GRACE_MINUTES = 15;
+const FREE_EXTENSION_MINUTES = 10;
+const EXTEND_STEP = 15;
+const MAX_DAY_MINUTES = (23 * 60) + 59;
 
-// Shared pricing calculation for extensions/rescheduling
-const calculateExtensionCost = (
-  extraMinutes: number,
-  pricePerHour: number,
-  hasUsedFreeExtension: boolean
-): { cost: number; isFree: boolean } => {
-  if (extraMinutes <= 0) return { cost: 0, isFree: true };
-  
-  const canUseFreeGrace = !hasUsedFreeExtension && extraMinutes <= GRACE_MINUTES;
-  if (canUseFreeGrace) return { cost: 0, isFree: true };
-  
-  const extraHours = Math.ceil(extraMinutes / 60);
-  return { cost: extraHours * pricePerHour, isFree: false };
+const displayTime = (t: string | null) => (t ? t.slice(0, 5) : "--:--");
+
+const canExtendBooking = (booking: Booking) => {
+  const end = toMinutes(booking.end_time?.slice(0, 5) || "00:00");
+  return end + EXTEND_STEP <= MAX_DAY_MINUTES;
 };
+
+const toMinutes = (time: string) => {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+};
+
+const formatTimeForDB = (t: string) => (t.length === 5 ? `${t}:00` : t);
+
+const addMinutesToTime = (
+  time: string,
+  mins: number
+) => {
+  const total = Math.min(
+    toMinutes(time) + mins,
+    MAX_DAY_MINUTES
+  );
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+};
+
+const calculatePricingForDuration = ({
+  booking,
+  pricePerHour,
+  proposedDurationMinutes,
+}: {
+  booking: Booking;
+  pricePerHour: number;
+  proposedDurationMinutes: number;
+}) => {
+  const currentDuration = booking.duration_minutes;
+  const extraMinutes = proposedDurationMinutes - currentDuration;
+
+  let extraCost = (extraMinutes / 15) * Math.ceil(pricePerHour / 4)
+
+  return {
+    extraFromCurrent: extraMinutes,
+    extraCost,
+    freeMinutesApplied: 0,
+    newTotalPrice: booking.total_price + extraCost,
+    canUseFreeExtension: true,
+    nextFreeExtensionMinutesUsed: 0,
+    nextHasUsedFreeExtension: booking.has_used_free_extension
+  };
+};
+
+// const calculateFreeExtension = (latestPaidEndTime: string, currentTime: string): number => {
+//   const latestPaidTime = new Date(latestPaidEndTime);
+//   const current = new Date(currentTime);
+
+//   // Calculate the difference in minutes between the current time and the latest paid end time
+//   const diffInMinutes = (latestPaidTime.getTime() - current.getTime()) / (1000 * 60);
+
+//   // If the current time is within the latest paid hour, return the remaining minutes
+//   if (diffInMinutes > 0 && diffInMinutes <= 60) {
+//     return Math.max(0, diffInMinutes);
+//   }
+
+//   // If the current time is beyond the latest paid hour, no free extension is available
+//   return 0;
+// };
 
 const computeStatus = (booking: Booking): ComputedStatus => {
   if (booking.status === "cancelled") return "cancelled";
@@ -108,7 +168,7 @@ const computeStatus = (booking: Booking): ComputedStatus => {
   endDt.setHours(eh, em, 0, 0);
 
   if (!booking.end_time) {
-    endDt.setTime(startDt.getTime() + booking.hours * 60 * 60 * 1000);
+    endDt.setTime(startDt.getTime() + booking.duration_minutes * 60 * 1000);
   }
 
   if (now < startDt) return "upcoming";
@@ -142,129 +202,246 @@ const loadRazorpayScript = (): Promise<boolean> =>
     document.body.appendChild(script);
   });
 
-const RescheduleConfirmationModal = ({ confirmation, onConfirm, onCancel, loading }: { confirmation: ExtensionConfirmation; onConfirm: () => void; onCancel: () => void; loading: boolean }) => (
-  <Dialog open={true} onOpenChange={(open) => !open && onCancel()}>
-    <DialogContent className="max-w-md pointer-events-auto">
-      <DialogHeader>
-        <DialogTitle>{confirmation.type === "extend" ? "Extend Booking" : "Reschedule Booking"} - Price Summary</DialogTitle>
-      </DialogHeader>
-      
-      <div className="space-y-4">
-        {/* Original Booking Info */}
-        <div className="bg-muted p-3 rounded-lg space-y-2">
-          <p className="text-sm font-medium text-foreground">Current Booking</p>
-          <p className="text-xs text-muted-foreground">Date: {format(new Date(confirmation.rescheduleDate), "MMM d, yyyy")}</p>
-          <p className="text-xs text-muted-foreground">Time: {confirmation.rescheduleStartTime} - {confirmation.rescheduleEndTime}</p>
-        </div>
+const ActionNote = ({ type }: { type: "extend" | "reschedule" }) => {
+  const actionText = type === "extend" ? "extension" : "rescheduling";
+  return (
+    <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg">
+      <p className="text-xs text-yellow-600 leading-relaxed">
+        <span className="font-semibold">Note:</span> While {actionText}, it is not allowed to move back or reduce duration.
+        If you mistakenly booked extra time, please cancel this booking and create a new one.
+        Any eligible refunds will be processed within 48 hours of cancellation.
+      </p>
+    </div>
+  );
+};
 
-        {/* Duration Change */}
-        <div className="border-l-2 border-blue-500 pl-3 space-y-1">
-          <p className="text-sm font-medium text-foreground">Duration Change</p>
-          <p className="text-xs text-muted-foreground">Extra time: <span className="font-semibold">{confirmation.extraMinutes} minutes</span></p>
-        </div>
+const RescheduleConfirmationModal = ({
+  confirmation,
+  onConfirm,
+  onCancel,
+  loading,
+  applyGraceExtension,
+  setApplyGraceExtension
+}:
+  {
+    confirmation: ExtensionConfirmation;
+    onConfirm: () => void;
+    onCancel: () => void;
+    loading: boolean;
+    applyGraceExtension: boolean;
+    setApplyGraceExtension: React.Dispatch<React.SetStateAction<boolean>>;
+  }) => {
+  const extraCost = applyGraceExtension ? 0 : confirmation.extraCost;
+  const graceDiscount = Math.ceil((FREE_EXTENSION_MINUTES * confirmation.pricePerHour) / 60);
+  const payableAmount = applyGraceExtension ? Math.max(0, confirmation.extraCost - graceDiscount) : confirmation.extraCost;
 
-        {/* Pricing Breakdown */}
-        {confirmation.extraMinutes <= 0 ? (
-          <div className="bg-green-500/10 border border-green-500/20 p-3 rounded-lg flex gap-2">
-            <AlertCircle className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-green-600">No Extra Charge</p>
-              <p className="text-xs text-green-600/80">No additional payment required. Your booking will be updated.</p>
-            </div>
+  return (
+    <Dialog open={true} onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="w-[92vw] max-w-[430px] max-h-[88vh] overflow-y-auto p-4 sm:p-5 rounded-2xl pointer-events-auto">
+        <DialogHeader>
+          <DialogTitle>{confirmation.type === "extend" ? "Extend Booking" : "Reschedule Booking"} - Price Summary</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Original Booking Info */}
+          <div className="bg-muted p-2.5 rounded-lg space-y-1">
+            <p className="text-sm font-medium text-foreground">Current Booking</p>
+            <p className="text-xs text-muted-foreground">Date: {format(new Date(confirmation.rescheduleDate), "MMM d, yyyy")}</p>
+            <p className="text-xs text-muted-foreground">Time: {confirmation.rescheduleStartTime} - {confirmation.rescheduleEndTime}</p>
           </div>
-        ) : confirmation.extraMinutes <= GRACE_MINUTES ? (
-          <div className="bg-blue-500/10 border border-blue-500/20 p-3 rounded-lg space-y-2">
-            <div className="flex gap-2">
-              <AlertCircle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-blue-600">
-                  {confirmation.canUseFreeExtension 
-                      ? "✓ Free Extension Available"
-                      : "⚠ Charges will apply"}
-                </p>
-                <p className="text-xs text-blue-600/80">
-                  {confirmation.canUseFreeExtension 
-                    ? `You can extend up to ${GRACE_MINUTES} mins for free (one-time).`
-                    : `You've already used your free extension. Charges will apply.`}
-                </p>
+
+          {confirmation.type === "extend" && confirmation.extraMinutes >= 30 && !confirmation.nextHasUsedFreeExtension && (
+            <div className="rounded-xl border p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-sm">
+                    Use Free 10 Min Grace
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    One-time free extension
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={confirmation.nextHasUsedFreeExtension}
+                  onClick={() => setApplyGraceExtension(v => !v)}
+                  className={cn(
+                    "w-12 h-6 rounded-full relative transition",
+                    applyGraceExtension
+                      ? "bg-primary"
+                      : "bg-muted",
+                    confirmation.nextHasUsedFreeExtension &&
+                    "opacity-50"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition",
+                      applyGraceExtension &&
+                      "translate-x-6"
+                    )}
+                  />
+                </button>
+
               </div>
             </div>
-            
-            {!confirmation.canUseFreeExtension && (
-              <div className="mt-3 pt-3 border-t border-blue-500/20">
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">Paid extension charge:</span>
-                  <span className="font-semibold">₹{confirmation.extraCost}</span>
+          )}
+
+          {/* Duration Change */}
+          <div className="border-l-2 border-blue-500 pl-3 space-y-1">
+            <p className="text-sm font-medium text-foreground">Duration Change</p>
+            <p className="text-xs text-muted-foreground">Duration change: <span className="font-semibold">{confirmation.extraMinutes} minutes</span></p>
+            {applyGraceExtension ? (
+              <p className="text-xs text-green-600 font-medium">
+                ✓ Free 10 minute grace applied.
+                You saved ₹{graceDiscount} on this extension.
+              </p>
+            ) : (
+              <p className="text-xs text-yellow-600 font-medium">
+                Proceed to payment to confirm this extension.
+              </p>
+            )}
+          </div>
+
+          {/* Pricing Breakdown */}
+          {confirmation.extraCost > 0 && (
+            <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg space-y-2">
+              <div className="flex gap-2">
+                <AlertCircle className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-yellow-600">Paid Extension</p>
+                  <p className="text-xs text-yellow-600/80">Additional parking time selected. Extension charge applies.</p>
                 </div>
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg space-y-2">
-            <div className="flex gap-2">
-              <AlertCircle className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-yellow-600">Paid Extension</p>
-                <p className="text-xs text-yellow-600/80">Extra {confirmation.extraMinutes} minutes requires additional payment.</p>
+              <div className="mt-3 pt-3 border-t border-yellow-500/20 space-y-1">
+                <div className="flex justify-between text-xs">
+                  <span>Current booking amount:</span>
+                  <span className="font-semibold">₹{confirmation.newTotalPrice - extraCost}</span>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs">
+                    <span>
+                      Extension charge ({confirmation.extraMinutes} mins):
+                    </span>
+
+                    <span className="font-semibold text-yellow-600">
+                      + ₹{confirmation.extraCost}
+                    </span>
+                  </div>
+
+                  {applyGraceExtension && (
+                    <div className="flex justify-between items-start text-xs text-green-600 bg-green-500/5 rounded-md px-2 py-2">
+                      <span className="pr-3">
+                        Free extension discount (10 mins)
+                      </span>
+
+                      <span className="font-semibold whitespace-nowrap">
+                        - ₹{graceDiscount}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-between text-sm font-bold border-t border-yellow-500/20 pt-2 mt-2">
+                  <span>Booking total after extension:</span>
+                  <span className="text-yellow-600">
+                    ₹{applyGraceExtension ? (
+                      confirmation.newTotalPrice
+                      -
+                      Math.ceil((FREE_EXTENSION_MINUTES * confirmation.pricePerHour) / 60)
+                    )
+                      :
+                      confirmation.newTotalPrice
+                    }
+                  </span>
+                </div>
               </div>
             </div>
-            
-            <div className="mt-3 pt-3 border-t border-yellow-500/20 space-y-1">
-              <div className="flex justify-between text-xs">
-                <span>Original paid amount:</span>
-                <span className="font-semibold">₹{confirmation.newTotalPrice - confirmation.extraCost}</span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span>Extra minutes ({Math.ceil(confirmation.extraMinutes / 60)}h @ ₹{confirmation.pricePerHour}/h):</span>
-                <span className="font-semibold text-yellow-600">+ ₹{confirmation.extraCost}</span>
-              </div>
-              <div className="flex justify-between text-sm font-bold border-t border-yellow-500/20 pt-2 mt-2">
-                <span>New total:</span>
-                <span className="text-yellow-600">₹{confirmation.newTotalPrice}</span>
-              </div>
+          )}
+
+          {/* Final Price */}
+          <div className="bg-card border border-border p-3 rounded-lg">
+            <div className="flex justify-between items-center">
+              <span className="text-base font-display font-bold">Amount Payable:</span>
+              <span className="text-xl font-bold text-primary">
+                ₹{payableAmount}
+              </span>
             </div>
           </div>
-        )}
 
-        {/* Final Price */}
-        <div className="bg-card border border-border p-3 rounded-lg">
-          <div className="flex justify-between items-center">
-            <span className="text-lg font-display font-bold">Final Amount:</span>
-            <span className="text-2xl font-bold text-primary">₹{confirmation.newTotalPrice}</span>
+          {/* Action Buttons */}
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <Button
+              variant="outline"
+              onClick={onCancel}
+              disabled={loading}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={onConfirm}
+              disabled={loading}
+              className="flex-1"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Preparing payment...
+                </>
+              ) : (
+                "Confirm & Pay ₹" + payableAmount
+              )}
+            </Button>
           </div>
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
-        {/* Action Buttons */}
-        <div className="flex gap-2 pt-2">
-          <Button 
-            variant="outline" 
-            onClick={onCancel} 
-            disabled={loading}
-            className="flex-1"
-          >
-            Cancel
-          </Button>
-          <Button 
-            onClick={onConfirm} 
-            disabled={loading}
-            className="flex-1"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Preparing payment...
-              </>
-            ) : confirmation.isPaidExtension ? (
-              "Confirm & Pay"
-            ) : (
-              "Confirm"
-            )}
-          </Button>
-        </div>
-      </div>
-    </DialogContent>
-  </Dialog>
-);
+// const ReduceTimeConfirmationModal = ({
+//   data,
+//   onConfirm,
+//   onCancel,
+// }: {
+//   data: any;
+//   onConfirm: () => void;
+//   onCancel: () => void;
+// }) => (
+//   <Dialog open={true} onOpenChange={(o) => !o && onCancel()}>
+//     <DialogContent className="max-w-md">
+//       <DialogHeader>
+//         <DialogTitle>Reduce Booking Duration?</DialogTitle>
+//       </DialogHeader>
+
+//       <div className="space-y-4">
+//         <div className="bg-red-500/10 border border-red-500/20 p-3 rounded-lg">
+//           <p className="text-sm font-medium text-red-600">
+//             ⚠ No Refund Policy
+//           </p>
+//           <p className="text-xs text-red-600/80">
+//             You are reducing your booking duration.  
+//             Any unused time will NOT be refunded.
+//           </p>
+//         </div>
+
+//         <div className="text-sm text-muted-foreground">
+//           Are you sure you want to continue?
+//         </div>
+
+//         <div className="flex gap-2">
+//           <Button variant="outline" onClick={onCancel} className="flex-1">
+//             Cancel
+//           </Button>
+//           <Button onClick={onConfirm} className="flex-1">
+//             Yes, Continue
+//           </Button>
+//         </div>
+//       </div>
+//     </DialogContent>
+//   </Dialog>
+// );
 
 const MyBookingsPage = () => {
   const { user, loading: authLoading } = useAuth();
@@ -281,8 +458,9 @@ const MyBookingsPage = () => {
 
   // Extend state
   const [extendingId, setExtendingId] = useState<string | null>(null);
-  const [extendEndTime, setExtendEndTime] = useState("");
+  const [extendMinutes, setExtendMinutes] = useState(15);
   const [extendLoading, setExtendLoading] = useState(false);
+  const [applyGraceExtension, setApplyGraceExtension] = useState(false);
 
   // Reschedule state
   const [reschedulingId, setReschedulingId] = useState<string | null>(null);
@@ -290,7 +468,22 @@ const MyBookingsPage = () => {
   const [rescheduleStartTime, setRescheduleStartTime] = useState("");
   const [rescheduleEndTime, setRescheduleEndTime] = useState("");
   const [rescheduleLoading, setRescheduleLoading] = useState(false);
+  const [shouldCheckReschedule, setShouldCheckReschedule] = useState(false);
   const [rescheduleConfirmation, setRescheduleConfirmation] = useState<RescheduleConfirmation | null>(null);
+
+  const [reduceConfirmation, setReduceConfirmation] = useState<{
+    booking: Booking;
+    rescheduleDate: Date;
+    startTime: string;
+    endTime: string;
+  } | null>(null);
+
+  const canIncreaseExtension = (booking: Booking) =>
+    toMinutes(booking.end_time!.slice(0, 5)) + extendMinutes + EXTEND_STEP <= MAX_DAY_MINUTES;
+
+  const canDecreaseExtension = () => {
+    return extendMinutes > EXTEND_STEP;
+  };
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/login");
@@ -300,16 +493,54 @@ const MyBookingsPage = () => {
     loadRazorpayScript();
   }, []);
 
+  useEffect(() => {
+    if (!shouldCheckReschedule) return;
+    if (!reschedulingId) {
+      setShouldCheckReschedule(false);
+      return;
+    }
+    if (!rescheduleDate || !rescheduleStartTime || !rescheduleEndTime) {
+      setShouldCheckReschedule(false);
+      toast.error("Please fill all fields");
+      return;
+    }
+
+    const booking = bookings.find(b => b.id === reschedulingId);
+    if (!booking) {
+      setShouldCheckReschedule(false);
+      return;
+    }
+
+    prepareRescheduleConfirmation(booking);
+    setShouldCheckReschedule(false);
+  }, [shouldCheckReschedule]);
+
   const fetchBookings = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     const { data, error } = await supabase
       .from("bookings")
-      .select("*")
+      .select(`
+        *,
+        parking_spaces (
+          lat,
+          lng
+        )
+      `)
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
-    if (error) toast.error("Failed to load bookings");
-    else setBookings((data as Booking[]) || []);
+
+    if (error) {
+      toast.error("Failed to load bookings");
+    } else {
+      // Flatten the joined data for the interface
+      const enrichedBookings = (data || []).map((b: any) => ({
+        ...b,
+        space_lat: b.parking_spaces?.lat,
+        space_lng: b.parking_spaces?.lng
+      }));
+      setBookings(enrichedBookings);
+    }
     setLoading(false);
   }, [user]);
 
@@ -326,6 +557,18 @@ const MyBookingsPage = () => {
     if (user) { fetchBookings(); fetchReviews(); }
   }, [user, fetchBookings, fetchReviews]);
 
+  // const handleConfirmReduce = () => {
+  //   if (!reduceConfirmation) return;
+
+  //   const { rescheduleDate, startTime, endTime } = reduceConfirmation;
+
+  //   setRescheduleDate(rescheduleDate);
+  //   setRescheduleStartTime(startTime);
+  //   setRescheduleEndTime(endTime);
+  //   setReduceConfirmation(null);
+  //   setShouldCheckReschedule(true);
+  // };
+
   const handleCancel = async (id: string) => {
     setCancelling(id);
     const { error } = await supabase.from("bookings").update({ status: "cancelled" }).eq("id", id);
@@ -338,14 +581,25 @@ const MyBookingsPage = () => {
   };
 
   const handleExtend = async (booking: Booking) => {
-    if (!extendEndTime) { toast.error("Please select a new end time"); return; }
-    
-    const [oeh, oem] = (booking.end_time || "23:59").split(":").map(Number);
-    const [neh, nem] = extendEndTime.split(":").map(Number);
-    const extraMinutes = Math.max(0, neh * 60 + nem - oeh * 60 - oem);
+    const currentEnd = (booking.end_time || "23:59").slice(0, 5);
+    const currentEndMinutes = toMinutes(currentEnd);
+    const extensionMinutes =
+      applyGraceExtension
+        ? FREE_EXTENSION_MINUTES
+        : extendMinutes;
+    const extendEndTime =
+      addMinutesToTime(
+        currentEnd,
+        extensionMinutes
+      );
+    const newEndMinutes = toMinutes(extendEndTime);
 
-    if (extraMinutes <= 0) {
-      toast.error("New end time must be after current end time");
+    if (newEndMinutes === currentEndMinutes) {
+      toast.error("No changes detected. Please choose a different end time.");
+      return;
+    }
+    if (newEndMinutes < currentEndMinutes) {
+      toast.error("Moving end time backward is not allowed. Please cancel and create a new booking.");
       return;
     }
 
@@ -354,8 +608,8 @@ const MyBookingsPage = () => {
       p_space_id: booking.space_id,
       p_vehicle_type: booking.vehicle_type,
       p_booking_date: booking.booking_date!,
-      p_start_time: booking.end_time!,
-      p_end_time: extendEndTime,
+      p_start_time: formatTimeForDB(booking.end_time!),
+      p_end_time: formatTimeForDB(extendEndTime),
       p_exclude_booking_id: booking.id,
     });
 
@@ -376,27 +630,36 @@ const MyBookingsPage = () => {
       return;
     }
 
-    // Calculate cost using shared logic
-    const { cost: extraCost, isFree } = calculateExtensionCost(
-      extraMinutes,
-      space.price_per_hour,
-      booking.has_used_free_extension
-    );
+    const proposedDurationMinutes =
+      booking.duration_minutes +
+      (toMinutes(extendEndTime) - toMinutes(booking.end_time ?? booking.start_time ?? "00:00"));
+    const pricing = calculatePricingForDuration({
+      booking,
+      pricePerHour: space.price_per_hour,
+      proposedDurationMinutes,
+    });
 
-    const newHours = booking.hours + Math.ceil(extraMinutes / 60);
-    const newTotalPrice = booking.total_price + extraCost;
+    if (pricing.extraFromCurrent <= 0) {
+      toast.error("You can only extend duration. Reducing time is not allowed.");
+      return;
+    }
+
+    const newTotalPrice = booking.total_price + pricing.extraCost;
 
     setRescheduleConfirmation({
       bookingId: booking.id,
-      extraMinutes,
-      extraCost,
+      extraMinutes: Math.max(0, pricing.extraFromCurrent),
+      extraCost: pricing.extraCost,
       newTotalPrice,
-      canUseFreeExtension: !booking.has_used_free_extension && extraMinutes <= GRACE_MINUTES,
+      canUseFreeExtension: pricing.canUseFreeExtension,
       pricePerHour: space.price_per_hour,
       rescheduleDate: parseISO(booking.booking_date!),
       rescheduleStartTime: booking.start_time!,
       rescheduleEndTime: extendEndTime,
-      isPaidExtension: extraCost > 0,
+      isPaidExtension: pricing.extraCost > 0,
+      freeMinutesApplied: pricing.freeMinutesApplied,
+      nextFreeExtensionMinutesUsed: pricing.nextFreeExtensionMinutesUsed,
+      nextHasUsedFreeExtension: pricing.nextHasUsedFreeExtension,
       type: "extend",
     });
   };
@@ -407,38 +670,71 @@ const MyBookingsPage = () => {
       return;
     }
 
-    const [sh, sm] = rescheduleStartTime.split(":").map(Number);
-    const [eh, em] = rescheduleEndTime.split(":").map(Number);
-    const startMinutes = sh * 60 + sm;
-    const endMinutes = eh * 60 + em;
+    // BLOCK past date/time (FINAL GUARD)
+    if (rescheduleDate && rescheduleStartTime) {
+      const now = new Date();
+      const [h, m] = rescheduleStartTime.split(":").map(Number);
+      const selected = new Date(rescheduleDate);
+      selected.setHours(h, m, 0, 0);
 
+      if (selected < now) {
+        toast.error("You cannot reschedule to a past time");
+        return;
+      }
+    }
+
+    const currentStart = (booking.start_time || "").slice(0, 5);
+    const currentStartMinutes = toMinutes(currentStart);
+    const newStartMinutes = toMinutes(rescheduleStartTime);
+
+    if (
+      format(rescheduleDate, "yyyy-MM-dd") === booking.booking_date &&
+      newStartMinutes < currentStartMinutes
+    ) {
+      toast.error("You cannot move booking to an earlier time");
+      return;
+    }
+
+    const startMinutes = toMinutes(rescheduleStartTime);
+    const endMinutes = toMinutes(rescheduleEndTime);
+
+    const isSameAsCurrent =
+      rescheduleStartTime === (booking.start_time || "").slice(0, 5) &&
+      rescheduleEndTime === (booking.end_time || "").slice(0, 5) &&
+      format(rescheduleDate, "yyyy-MM-dd") === booking.booking_date;
+
+    if (isSameAsCurrent) {
+      toast.error("No changes detected. Please select different time.");
+      return;
+    }
     if (endMinutes <= startMinutes) {
       toast.error("End time must be after start time");
       return;
     }
+    const currentDurationMinutes = booking.duration_minutes;
+    const proposedDurationMinutes = Math.max(0, endMinutes - startMinutes);
 
-    // Calculate new duration
-    const newDurationMinutes = endMinutes - startMinutes;
+    if (proposedDurationMinutes < currentDurationMinutes) {
+      setReduceConfirmation({
+        booking,
+        rescheduleDate,
+        startTime: rescheduleStartTime,
+        endTime: rescheduleEndTime,
+      });
+      return;
+    }
 
-    const currentDurationMinutes =
-      (parseInt(booking.end_time!.split(":")[0]) * 60 +
-      parseInt(booking.end_time!.split(":")[1])) -
-      (parseInt(booking.start_time!.split(":")[0]) * 60 +
-      parseInt(booking.start_time!.split(":")[1]));
-
-    const extraMinutes = newDurationMinutes - currentDurationMinutes;
-    
     // Check capacity
     const { data: capacityCheck } = await supabase.rpc("check_parking_capacity", {
       p_space_id: booking.space_id,
       p_vehicle_type: booking.vehicle_type,
       p_booking_date: format(rescheduleDate, "yyyy-MM-dd"),
-      p_start_time: rescheduleStartTime,
-      p_end_time: rescheduleEndTime,
+      p_start_time: formatTimeForDB(rescheduleStartTime),
+      p_end_time: formatTimeForDB(rescheduleEndTime),
       p_exclude_booking_id: booking.id,
     });
 
-    if (capacityCheck && !(capacityCheck as any).available) {
+    if (!capacityCheck || !(capacityCheck as any).available) {
       toast.error("Selected slot is already booked. Please choose a different slot.");
       return;
     }
@@ -455,29 +751,29 @@ const MyBookingsPage = () => {
       return;
     }
 
-    // Calculate cost using shared logic
-    const { cost: extraCost } = calculateExtensionCost(
-      extraMinutes,
-      space.price_per_hour,
-      booking.has_used_free_extension
-    );
+    const pricing = calculatePricingForDuration({
+      booking,
+      pricePerHour: space.price_per_hour,
+      proposedDurationMinutes,
+    });
 
-    const newTotalPrice = extraMinutes > 0
-      ? booking.total_price + extraCost
-      : booking.total_price;
-    const isPaidExtension = extraCost > 0;
+    const newTotalPrice = booking.total_price + pricing.extraCost;
+    const isPaidExtension = pricing.extraCost > 0;
 
     setRescheduleConfirmation({
       bookingId: booking.id,
-      extraMinutes,
-      extraCost,
+      extraMinutes: Math.max(0, pricing.extraFromCurrent),
+      extraCost: pricing.extraCost,
       newTotalPrice,
-      canUseFreeExtension: !booking.has_used_free_extension && extraMinutes > 0 && extraMinutes <= GRACE_MINUTES,
+      canUseFreeExtension: pricing.canUseFreeExtension,
       pricePerHour: space.price_per_hour,
       rescheduleDate,
       rescheduleStartTime,
       rescheduleEndTime,
       isPaidExtension,
+      freeMinutesApplied: pricing.freeMinutesApplied,
+      nextFreeExtensionMinutesUsed: pricing.nextFreeExtensionMinutesUsed,
+      nextHasUsedFreeExtension: pricing.nextHasUsedFreeExtension,
       type: "reschedule",
     });
   };
@@ -486,7 +782,6 @@ const MyBookingsPage = () => {
     const [sh, sm] = confirmation.rescheduleStartTime.split(":").map(Number);
     const [eh, em] = confirmation.rescheduleEndTime.split(":").map(Number);
     const newDurationMinutes = eh * 60 + em - sh * 60 - sm;
-    const hours = Math.ceil(newDurationMinutes / 60);
 
     try {
       const [loaded, orderResponse] = await Promise.all([
@@ -528,14 +823,13 @@ const MyBookingsPage = () => {
               space_title: booking.space_title,
               space_address: booking.space_address,
               space_city: booking.space_city,
-              hours,
+              duration_minutes: newDurationMinutes,
               total_price: confirmation.newTotalPrice,
               vehicle_type: booking.vehicle_type,
               vehicle_id: booking.vehicle_id || null,
               slot_id: booking.slot_id || null,
-              has_used_free_extension:
-                booking.has_used_free_extension ||
-                (confirmation.extraMinutes > 0 && confirmation.extraMinutes <= GRACE_MINUTES),
+              has_used_free_extension: confirmation.nextHasUsedFreeExtension,
+              free_extension_minutes_used: confirmation.nextFreeExtensionMinutesUsed,
             };
 
             if (confirmation.type === "reschedule") {
@@ -568,7 +862,8 @@ const MyBookingsPage = () => {
               setRescheduleStartTime("");
               setRescheduleEndTime("");
               setExtendingId(null);
-              setExtendEndTime("");
+              setExtendMinutes(15);
+              setApplyGraceExtension(false);
               fetchBookings();
             }
           } catch {
@@ -608,6 +903,20 @@ const MyBookingsPage = () => {
       return;
     }
 
+    if (applyGraceExtension && rescheduleConfirmation.extraMinutes >= 30) {
+      const adjustedMinutes =
+        Math.max(
+          0,
+          rescheduleConfirmation.extraMinutes
+          - FREE_EXTENSION_MINUTES
+        );
+
+      rescheduleConfirmation.extraCost = Math.ceil((adjustedMinutes * rescheduleConfirmation.pricePerHour) / 60);
+      rescheduleConfirmation.newTotalPrice = booking.total_price + rescheduleConfirmation.extraCost;
+      rescheduleConfirmation.nextHasUsedFreeExtension = true;
+      rescheduleConfirmation.nextFreeExtensionMinutesUsed = 10;
+    }
+
     if (rescheduleConfirmation.isPaidExtension && rescheduleConfirmation.extraCost > 0) {
       await handleReschedulePayment(rescheduleConfirmation, booking);
       return;
@@ -616,18 +925,13 @@ const MyBookingsPage = () => {
     const [sh, sm] = rescheduleConfirmation.rescheduleStartTime.split(":").map(Number);
     const [eh, em] = rescheduleConfirmation.rescheduleEndTime.split(":").map(Number);
     const newDurationMinutes = eh * 60 + em - sh * 60 - sm;
-    const hours = Math.ceil(newDurationMinutes / 60);
-
-    const usingFreeExtension =
-      !booking.has_used_free_extension &&
-      rescheduleConfirmation.extraMinutes > 0 &&
-      rescheduleConfirmation.extraMinutes <= GRACE_MINUTES;
 
     // Prepare update data based on type
     const updateData: any = {
-      hours,
+      duration_minutes: newDurationMinutes,
       total_price: rescheduleConfirmation.newTotalPrice,
-      has_used_free_extension: booking.has_used_free_extension || usingFreeExtension,
+      has_used_free_extension: rescheduleConfirmation.nextHasUsedFreeExtension,
+      free_extension_minutes_used: rescheduleConfirmation.nextFreeExtensionMinutesUsed,
     };
 
     if (rescheduleConfirmation.type === "reschedule") {
@@ -657,7 +961,8 @@ const MyBookingsPage = () => {
       setRescheduleStartTime("");
       setRescheduleEndTime("");
       setExtendingId(null);
-      setExtendEndTime("");
+      setExtendMinutes(15);
+      setApplyGraceExtension(false);
       fetchBookings();
     }
   };
@@ -694,7 +999,25 @@ const MyBookingsPage = () => {
   const historyBookings = enrichedBookings.filter(b => b.computedStatus === "completed" || b.computedStatus === "cancelled");
   const filteredHistory = historyFilter === "all" ? historyBookings : historyBookings.filter(b => b.computedStatus === historyFilter);
 
-  const formatTime = (t: string | null) => (t ? t.slice(0, 5) : "--:--");
+  const getDisplayLocation = (booking: Booking & { computedStatus: string }) => {
+    if (
+      booking.computedStatus === "completed" ||
+      booking.computedStatus === "cancelled"
+    ) {
+      return `Previously parked in ${booking.space_city}`;
+    }
+    return `${booking.space_address}, ${booking.space_city}`;
+  };
+
+  const openDirections = (
+    lat: number,
+    lng: number
+  ) => {
+    window.open(
+      `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${lat},${lng}`,
+      "_blank"
+    );
+  };
 
   const renderBookingCard = (booking: (typeof enrichedBookings)[0], showActions: boolean) => {
     const cfg = statusConfig[booking.computedStatus];
@@ -706,60 +1029,130 @@ const MyBookingsPage = () => {
               <h3 className="font-display font-bold text-foreground text-lg">{booking.space_title}</h3>
               <Badge variant="outline" className={cfg.color}>{cfg.label}</Badge>
               {booking.vehicle_type && <Badge variant="secondary" className="capitalize text-xs">{booking.vehicle_type}</Badge>}
-              {booking.has_used_free_extension && <Badge className="bg-yellow-500/20 text-yellow-700 text-xs">Grace Used</Badge>}
+              {canExtendBooking(booking) && (booking.has_used_free_extension ? (
+                <Badge className="bg-yellow-500/20 text-yellow-700 text-xs">
+                  Grace Used
+                </Badge>
+              ) : (
+                <Badge className="bg-green-500/20 text-green-700 text-xs">
+                  Grace Available
+                </Badge>
+              ))}
             </div>
             <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1"><MapPin className="w-4 h-4" /> {booking.space_address}, {booking.space_city}</span>
+              <span className="flex items-center gap-1"><MapPin className="w-4 h-4" /> {getDisplayLocation(booking)}</span>
               {booking.booking_date && <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> {format(parseISO(booking.booking_date), "MMM d, yyyy")}</span>}
-              <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {formatTime(booking.start_time)} – {formatTime(booking.end_time)}</span>
-              <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {booking.hours} hr{booking.hours > 1 ? "s" : ""}</span>
+              <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {displayTime(booking.start_time)} – {displayTime(booking.end_time)}</span>
+              <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {Math.floor(booking.duration_minutes / 60)}h {booking.duration_minutes % 60}m</span>
             </div>
+            {booking.computedStatus === "completed" && (
+              <div className="text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
+                🔒 Exact parking access details hidden after booking completion.
+              </div>
+            )}
           </div>
+          {(booking.computedStatus === "active" || booking.computedStatus === "upcoming") && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() => openDirections(booking.space_lat!, booking.space_lng!)}
+            >
+              <Navigation className="w-3.5 h-3.5" />
+              Navigate
+            </Button>
+          )}
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-xl font-bold text-foreground">₹{booking.total_price}</span>
             {showActions && booking.computedStatus === "upcoming" && (
               <>
-                <Button variant="outline" size="sm" className="gap-1" onClick={() => { setReschedulingId(booking.id); setRescheduleStartTime(booking.start_time?.slice(0,5) || ""); setRescheduleEndTime(booking.end_time?.slice(0,5) || ""); setRescheduleLoading(false); }}>
+                {/* <Button variant="outline" size="sm" className="gap-1" onClick={() => { setReschedulingId(booking.id); setRescheduleStartTime(booking.start_time?.slice(0, 5) || ""); setRescheduleEndTime(booking.end_time?.slice(0, 5) || ""); setRescheduleLoading(false); }}>
                   <RefreshCw className="w-3.5 h-3.5" /> Reschedule
-                </Button>
+                </Button> */}
                 <Button variant="destructive" size="sm" disabled={cancelling === booking.id} onClick={() => handleCancel(booking.id)}>
                   {cancelling === booking.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                   <span className="ml-1">Cancel</span>
                 </Button>
               </>
             )}
-            {showActions && booking.computedStatus === "active" && (
-              <Button variant="outline" size="sm" className="gap-1" onClick={() => { setExtendingId(booking.id); setExtendEndTime(""); setExtendLoading(false); }}>
+            {showActions && booking.computedStatus === "active" && canExtendBooking(booking) && (
+              <Button variant="outline" size="sm" className="gap-1"
+                onClick={() => { setExtendingId(booking.id); setExtendMinutes(15); setApplyGraceExtension(false); setExtendLoading(false); }}>
                 <TimerReset className="w-3.5 h-3.5" /> Extend
               </Button>
             )}
           </div>
         </div>
 
-        {/* Review section */}
-        {booking.computedStatus === "completed" && !booking.hasReview && (
-          <div className="border-t border-border pt-4">
-            {reviewingId === booking.id ? (
-              <div className="space-y-3">
-                <StarRating rating={reviewRating} onChange={setReviewRating} />
-                <Textarea placeholder="Share your experience (optional)" value={reviewText} onChange={e => setReviewText(e.target.value)} rows={2} />
-                <div className="flex gap-2">
-                  <Button size="sm" disabled={submittingReview || reviewRating === 0} onClick={() => handleSubmitReview(booking)}>
-                    {submittingReview ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null} Submit Review
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => { setReviewingId(null); setReviewRating(0); setReviewText(""); }}>Cancel</Button>
+        {/* Completed Booking Actions */}
+        {booking.computedStatus === "completed" && (
+          <div className="border-t border-border pt-4 flex flex-wrap gap-3 items-center">
+
+            {/* Book Again Button */}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => navigate(`/space/db_${booking.space_id}`)}
+            >
+              Book Again
+            </Button>
+
+            {/* Leave Review Button */}
+            {/* {!booking.hasReview && (
+              reviewingId === booking.id ? (
+                <div className="w-full mt-3 space-y-3">
+                  <StarRating
+                    rating={reviewRating}
+                    onChange={setReviewRating}
+                  />
+
+                  <Textarea
+                    placeholder="Share your experience (optional)"
+                    value={reviewText}
+                    onChange={(e) => setReviewText(e.target.value)}
+                    rows={2}
+                  />
+
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={submittingReview || reviewRating === 0}
+                      onClick={() => handleSubmitReview(booking)}
+                    >
+                      Submit Review
+                    </Button>
+
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setReviewingId(null);
+                        setReviewRating(0);
+                        setReviewText("");
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReviewingId(booking.id)}
+                >
+                  <Star className="w-4 h-4 mr-1" />
+                  Leave Review
+                </Button>
+              )
+            )} */}
+
+            {/* {booking.hasReview && (
+              <div className="text-sm text-muted-foreground flex items-center gap-2">
+                <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                Review submitted
               </div>
-            ) : (
-              <Button variant="outline" size="sm" className="gap-1" onClick={() => setReviewingId(booking.id)}>
-                <Star className="w-4 h-4" /> Leave a Review
-              </Button>
-            )}
-          </div>
-        )}
-        {booking.hasReview && (
-          <div className="border-t border-border pt-3 flex items-center gap-2 text-sm text-muted-foreground">
-            <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" /> Review submitted
+            )} */}
           </div>
         )}
       </div>
@@ -773,7 +1166,7 @@ const MyBookingsPage = () => {
   }
 
   const extendBooking = bookings.find(b => b.id === extendingId);
-  const rescheduleBooking = bookings.find(b => b.id === reschedulingId);
+  // const rescheduleBooking = bookings.find(b => b.id === reschedulingId);
 
   return (
     <div className="min-h-screen bg-background">
@@ -821,21 +1214,81 @@ const MyBookingsPage = () => {
       </div>
 
       {/* Extend Dialog */}
-      <Dialog open={!!extendingId} onOpenChange={(open) => { if (!open) { setExtendingId(null); setExtendEndTime(""); } }}>
+      <Dialog open={!!extendingId} onOpenChange={(open) => { if (!open) { setExtendingId(null); setExtendMinutes(15); setApplyGraceExtension(false); } }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Extend Parking Time</DialogTitle></DialogHeader>
+          <ActionNote type="extend" />
           {extendBooking && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">Current end time: <strong>{extendBooking.end_time?.slice(0, 5)}</strong></p>
               <div>
                 <label className="text-sm font-medium block mb-1">New End Time</label>
-                <Input type="time" value={extendEndTime} onChange={e => setExtendEndTime(e.target.value)} />
+                <div className="flex items-center justify-between border rounded-xl p-3">
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (canDecreaseExtension()) {
+                        setExtendMinutes(v => v - EXTEND_STEP);
+                      }
+                    }}
+                    disabled={!canDecreaseExtension()}
+                    className={cn(
+                      "w-10 h-10 rounded-full border",
+                      !canDecreaseExtension() &&
+                      "opacity-40 cursor-not-allowed"
+                    )}
+                  >
+                    -
+                  </button>
+
+                  <div className="text-center">
+                    <p className="font-semibold">
+                      +{extendMinutes} mins
+                    </p>
+
+                    <p className="text-xs text-muted-foreground">
+                      New End Time:
+                      {" "}
+                      {addMinutesToTime(
+                        extendBooking.end_time?.slice(0, 5) || "00:00",
+                        extendMinutes
+                      )}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => canIncreaseExtension(extendBooking) &&
+                      setExtendMinutes(v => v + EXTEND_STEP)
+                    }
+                    disabled={!canIncreaseExtension(extendBooking)}
+                    className={cn(
+                      "w-10 h-10 rounded-full border",
+                      !canIncreaseExtension(extendBooking) &&
+                      "opacity-40 cursor-not-allowed"
+                    )}
+                  >
+                    +
+                  </button>
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  • Extension allowed only in 15 minute increments
+                  • Original booking duration cannot be reduced
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  • Extensions are charged based on selected extra duration
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  • 10 minute grace discount available on 30+ minute extensions
+                </p>
               </div>
               <div className="flex gap-2">
-                <Button disabled={extendLoading} onClick={() => handleExtend(extendBooking)}>
-                  {extendLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Checking...</> : "Review Changes"}
+                <Button disabled={extendLoading || !extendBooking} onClick={() => handleExtend(extendBooking)}>
+                  {extendLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Checking...</> : "Check Price & Availability"}
                 </Button>
-                <Button variant="ghost" onClick={() => { setExtendingId(null); setExtendEndTime(""); }}>Cancel</Button>
+                <Button variant="ghost" onClick={() => { setExtendingId(null); setExtendMinutes(15); setApplyGraceExtension(false); }}>Cancel</Button>
               </div>
             </div>
           )}
@@ -843,9 +1296,10 @@ const MyBookingsPage = () => {
       </Dialog>
 
       {/* Reschedule Dialog */}
-      <Dialog open={!!reschedulingId && !rescheduleConfirmation} onOpenChange={(open) => { if (!open) { setReschedulingId(null); setRescheduleDate(undefined); setRescheduleStartTime(""); setRescheduleEndTime(""); } }}>
+      {/* <Dialog open={!!reschedulingId && !rescheduleConfirmation} onOpenChange={(open) => { if (!open) { setReschedulingId(null); setRescheduleDate(undefined); setRescheduleStartTime(""); setRescheduleEndTime(""); } }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Reschedule Booking</DialogTitle></DialogHeader>
+          <ActionNote type="reschedule" />
           {rescheduleBooking && (
             <div className="space-y-4">
               <div>
@@ -865,23 +1319,59 @@ const MyBookingsPage = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-sm font-medium block mb-1">Start Time</label>
-                  <Input type="time" value={rescheduleStartTime} onChange={e => setRescheduleStartTime(e.target.value)} />
+                  <Input
+                    type="time"
+                    value={rescheduleStartTime}
+                    min={rescheduleDate && isToday(rescheduleDate) ? getCurrentTime() : "00:00"}
+                    onFocus={() => {
+                      if (rescheduleDate && isToday(rescheduleDate)) {
+                        if (isPastTime(rescheduleDate, rescheduleStartTime)) {
+                          setRescheduleStartTime(getCurrentTime());
+                        }
+                      }
+                    }}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (rescheduleDate && isToday(rescheduleDate) && isPastTime(rescheduleDate, value)) {
+                        toast.error("Cannot select past time");
+                        return;
+                      }
+                      setRescheduleStartTime(value);
+                    }}
+                  />
                 </div>
                 <div>
                   <label className="text-sm font-medium block mb-1">End Time</label>
-                  <Input type="time" value={rescheduleEndTime} onChange={e => setRescheduleEndTime(e.target.value)} />
+                  <Input
+                    type="time"
+                    value={rescheduleEndTime}
+                    min={rescheduleStartTime || "00:00"}
+                    onFocus={() => {
+                      if (rescheduleEndTime <= rescheduleStartTime) {
+                        setRescheduleEndTime(rescheduleStartTime);
+                      }
+                    }}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value <= rescheduleStartTime) {
+                        toast.error("End time must be after start time");
+                        return;
+                      }
+                      setRescheduleEndTime(value);
+                    }}
+                  />
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button disabled={rescheduleLoading} onClick={() => prepareRescheduleConfirmation(rescheduleBooking)}>
-                  {rescheduleLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Checking...</> : "Review Changes"}
+                <Button disabled={rescheduleLoading} onClick={() => setShouldCheckReschedule(true)}>
+                  {rescheduleLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Checking...</> : "Check Price & Availability"}
                 </Button>
                 <Button variant="ghost" onClick={() => { setReschedulingId(null); setRescheduleDate(undefined); setRescheduleStartTime(""); setRescheduleEndTime(""); }}>Cancel</Button>
               </div>
             </div>
           )}
         </DialogContent>
-      </Dialog>
+      </Dialog> */}
 
       {/* Reschedule Confirmation Modal */}
       {rescheduleConfirmation && (
@@ -890,8 +1380,19 @@ const MyBookingsPage = () => {
           onConfirm={handleConfirmReschedule}
           onCancel={() => setRescheduleConfirmation(null)}
           loading={rescheduleLoading}
+          applyGraceExtension={applyGraceExtension}
+          setApplyGraceExtension={setApplyGraceExtension}
         />
       )}
+
+      {/* Reduce Confirmation Modal */}
+      {/* {reduceConfirmation && (
+        <ReduceTimeConfirmationModal
+          data={reduceConfirmation.booking}
+          onConfirm={handleConfirmReduce}
+          onCancel={() => setReduceConfirmation(null)}
+        />
+      )} */}
     </div>
   );
 };

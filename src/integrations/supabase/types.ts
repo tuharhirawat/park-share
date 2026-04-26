@@ -19,8 +19,10 @@ export type Database = {
           booking_date: string | null
           created_at: string
           end_time: string | null
+          free_extension_minutes_used: number
           has_used_free_extension: boolean
           hours: number
+          duration_minutes: number
           id: string
           original_duration_minutes: number | null
           original_end_time: string | null
@@ -43,8 +45,10 @@ export type Database = {
           booking_date?: string | null
           created_at?: string
           end_time?: string | null
+          free_extension_minutes_used?: number
           has_used_free_extension?: boolean
           hours: number
+          duration_minutes: number
           id?: string
           original_duration_minutes?: number | null
           original_end_time?: string | null
@@ -67,8 +71,10 @@ export type Database = {
           booking_date?: string | null
           created_at?: string
           end_time?: string | null
+          free_extension_minutes_used?: number
           has_used_free_extension?: boolean
           hours?: number
+          duration_minutes?: number
           id?: string
           original_duration_minutes?: number | null
           original_end_time?: string | null

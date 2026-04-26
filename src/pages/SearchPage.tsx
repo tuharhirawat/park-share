@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import ParkingCard from "@/components/ParkingCard";
 import { Button } from "@/components/ui/button";
 import { MapPin, SlidersHorizontal, Car, Bike, X, Loader2 } from "lucide-react";
@@ -13,8 +13,24 @@ const SearchPage = () => {
   const [selectedCity, setSelectedCity] = useState("All");
   const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [userLocation, setUserLocation] =
+    useState<{
+      lat: number;
+      lng: number;
+    } | null>(null);
   const { user } = useAuth();
   const { data: spaces = [], isLoading } = useParkingSpaces();
+
+  useEffect(() => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      },
+      () => {
+        setUserLocation(null);
+      }
+    );
+  }, []);
 
   const filtered = useMemo(() => {
     return spaces.filter(s => {
@@ -86,7 +102,7 @@ const SearchPage = () => {
           ) : (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filtered.map(s => <ParkingCard key={s.id} space={s} />)}
+                {filtered.map(s => <ParkingCard key={s.id} space={s} userLocation={userLocation} />)}
               </div>
               {filtered.length === 0 && (
                 <div className="text-center py-20">
