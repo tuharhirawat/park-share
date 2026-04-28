@@ -428,7 +428,7 @@ const SpaceDetail = () => {
                 <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground mb-2">{space.title}</h1>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
                   <span className="flex items-center gap-1"><MapPin className="w-4 h-4" />Approximate location in {space.city}</span>
-                  {/* <span className="flex items-center gap-1"><Star className="w-4 h-4 text-accent fill-accent" /> {space.rating} ({space.reviewCount} reviews)</span> */}
+                  <span className="flex items-center gap-1"><Star className="w-4 h-4 text-accent fill-accent" /> {space.rating} ({space.reviewCount} reviews)</span>
                 </div>
                 <p className="text-muted-foreground">Hosted by <span className="font-semibold text-foreground">{space.hostName}</span></p>
                 <ApproximateLocationMap lat={space.lat} lng={space.lng} />
@@ -448,7 +448,7 @@ const SpaceDetail = () => {
                 </div>
               </div>
               <div className="bg-card rounded-2xl p-6 card-shadow space-y-4">
-                <h3 className="font-display font-bold text-foreground text-lg">Reviews</h3>
+                <h3 className="font-display font-bold text-foreground text-lg">Recent Reviews</h3>
                 <ReviewsList spaceId={space._dbId || space.id} />
               </div>
             </div>

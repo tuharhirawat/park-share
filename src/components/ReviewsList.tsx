@@ -1,78 +1,108 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { Star, Loader2 } from "lucide-react";
+import { Star, Loader2, MessageSquare } from "lucide-react";
 import { format } from "date-fns";
-
-interface ReviewItem {
-  id: string;
-  rating: number;
-  review_text: string | null;
-  created_at: string;
-}
+import { useReviews } from "@/hooks/useReviews";
+import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import SpaceReviewersModal from "@/components/host/SpaceReviewersModal";
 
 const ReviewsList = ({ spaceId }: { spaceId: string }) => {
-  const [reviews, setReviews] = useState<ReviewItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [openAllReviews, setOpenAllReviews] = useState(false);
+  const { reviews, loading } = useReviews(spaceId);
 
-  useEffect(() => {
-    const fetchReviews = async () => {
-      const { data } = await supabase
-        .from("reviews")
-        .select("id, rating, review_text, created_at")
-        .eq("space_id", spaceId)
-        .order("created_at", { ascending: false });
-      setReviews((data as ReviewItem[]) || []);
-      setLoading(false);
-    };
-    fetchReviews();
-  }, [spaceId]);
-
-  if (loading) {
+  if (loading && reviews.length === 0) {
     return (
-      <div className="flex justify-center py-4">
-        <Loader2 className="w-5 h-5 animate-spin text-primary" />
+      <div className="flex justify-center py-8">
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
       </div>
     );
   }
 
   if (reviews.length === 0) {
-    return <p className="text-sm text-muted-foreground">No reviews yet.</p>;
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-center bg-muted/30 rounded-2xl border border-dashed">
+        <MessageSquare className="w-8 h-8 text-muted-foreground/40 mb-2" />
+        <p className="text-sm text-muted-foreground">No reviews yet for this space.</p>
+        <p className="text-xs text-muted-foreground/60 mt-1">Be the first to share your experience!</p>
+      </div>
+    );
   }
 
-  const avgRating = (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1);
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
-        <span className="font-bold text-foreground">{avgRating}</span>
-        <span className="text-muted-foreground text-sm">({reviews.length} review{reviews.length !== 1 ? "s" : ""})</span>
-      </div>
-      <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-        {reviews.map((r) => (
-          <div key={r.id} className="bg-muted/50 rounded-xl p-4 space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="flex gap-0.5">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <Star
-                    key={i}
-                    className={`w-3.5 h-3.5 ${
-                      i <= r.rating ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground/30"
-                    }`}
-                  />
-                ))}
+    <>
+      <div className="space-y-6">
+        <div className="grid gap-4">
+          {reviews.map((r) => (
+            <div key={r.id} className="bg-muted/40 rounded-2xl p-5 space-y-3 transition-colors hover:bg-muted/60">
+              {/* <div className="flex items-center justify-between">
+                <h4 className="font-semibold">
+                  Recent Reviews
+                </h4>
+
+                <span className="text-sm text-muted-foreground">
+                  {reviews.length} recent reviewer{reviews.length > 1 ? "s" : ""}
+                </span>
+              </div> */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
+                    {r?.full_name?.charAt(0) || "U"}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      {r?.full_name || "Anonymous User"}
+                    </p>
+                    <div className="flex gap-0.5">
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <Star
+                          key={i}
+                          className={`w-3 h-3 ${i <= r.rating ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground/20"
+                            }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <span className="text-xs text-muted-foreground font-medium">
+                  {format(new Date(r.created_at), "MMM d, yyyy")}
+                  {r.updated_at !== r.created_at && (
+                    <span className="ml-2 text-[10px]">
+                      Edited
+                    </span>
+                  )}
+                </span>
               </div>
-              <span className="text-xs text-muted-foreground">
-                {format(new Date(r.created_at), "MMM d, yyyy")}
-              </span>
+              {r.review_text?.trim() && (
+                <p className="text-sm text-foreground leading-relaxed pl-11">
+                  {r.review_text}
+                </p>
+              )}
             </div>
-            {r.review_text && (
-              <p className="text-sm text-foreground">{r.review_text}</p>
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
+
+        <div className="flex justify-center pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setOpenAllReviews(true)}
+            className="rounded-full px-6"
+          >
+            View All Reviews
+          </Button>
+        </div>
       </div>
-    </div>
+      <Dialog
+        open={openAllReviews}
+        onOpenChange={setOpenAllReviews}
+      >
+        <DialogContent className="w-[95vw] sm:max-w-2xl lg:max-w-4xl max-h-[85vh] p-0 overflow-hidden rounded-2xl">
+          <SpaceReviewersModal
+            spaceId={spaceId}
+          />
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 

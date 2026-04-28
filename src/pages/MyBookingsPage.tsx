@@ -967,22 +967,45 @@ const MyBookingsPage = () => {
     }
   };
 
-  const handleSubmitReview = async (booking: Booking) => {
-    if (!user || reviewRating === 0) { toast.error("Please select a rating"); return; }
+  const handleSubmitReview = async (booking: Booking, existingReviewId?: string) => {
+    if (!user || reviewRating === 0) {
+      toast.error("Please select a rating");
+      return;
+    }
     setSubmittingReview(true);
-    const { error } = await supabase.from("reviews").insert({
+
+    const reviewData = {
       user_id: user.id,
       booking_id: booking.id,
       space_id: booking.space_id,
       rating: reviewRating,
       review_text: reviewText || null,
-    });
+      updated_at: new Date().toISOString(),
+    };
+
+    let error;
+    if (existingReviewId) {
+      const { error: updateError } = await supabase
+        .from("reviews")
+        .update(reviewData)
+        .eq("id", existingReviewId);
+      error = updateError;
+    } else {
+      const { error: insertError } = await supabase
+        .from("reviews")
+        .insert(reviewData);
+      error = insertError;
+    }
+
     setSubmittingReview(false);
     if (error) {
-      if (error.message.includes("duplicate") || error.code === "23505") toast.error("You've already reviewed this booking");
-      else toast.error("Failed to submit review");
+      if (error.message.includes("duplicate") || error.code === "23505") {
+        toast.error("You've already reviewed this booking");
+      } else {
+        toast.error("Failed to submit review");
+      }
     } else {
-      toast.success("Review submitted! ⭐");
+      toast.success(existingReviewId ? "Review updated! ⭐" : "Review submitted! ⭐");
       setReviewingId(null);
       setReviewRating(0);
       setReviewText("");
@@ -990,14 +1013,55 @@ const MyBookingsPage = () => {
     }
   };
 
+  const reviewsByBooking = useMemo(() => {
+    const map = new Map<string, Review>();
+
+    reviews.forEach(review => {
+      map.set(review.booking_id, review);
+    });
+
+    return map;
+  }, [reviews]);
+
   const enrichedBookings = useMemo(
-    () => bookings.map(b => ({ ...b, computedStatus: computeStatus(b), hasReview: reviews.some(r => r.booking_id === b.id) })),
-    [bookings, reviews]
+    () =>
+      bookings.map(b => ({
+        ...b,
+        computedStatus: computeStatus(b),
+        hasReview: reviewsByBooking.has(b.id)
+      })),
+    [bookings, reviewsByBooking]
   );
 
-  const activeBookings = enrichedBookings.filter(b => b.computedStatus === "upcoming" || b.computedStatus === "active");
-  const historyBookings = enrichedBookings.filter(b => b.computedStatus === "completed" || b.computedStatus === "cancelled");
-  const filteredHistory = historyFilter === "all" ? historyBookings : historyBookings.filter(b => b.computedStatus === historyFilter);
+  const activeBookings = useMemo(
+    () =>
+      enrichedBookings.filter(
+        b =>
+          b.computedStatus === "upcoming" ||
+          b.computedStatus === "active"
+      ),
+    [enrichedBookings]
+  );
+  
+  const historyBookings = useMemo(
+    () =>
+      enrichedBookings.filter(
+        b =>
+          b.computedStatus === "completed" ||
+          b.computedStatus === "cancelled"
+      ),
+    [enrichedBookings]
+  );
+
+  const filteredHistory = useMemo(
+    () => historyFilter === "all"
+      ? historyBookings
+      : historyBookings.filter(
+        b =>
+          b.computedStatus === historyFilter
+      ),
+    [historyBookings, historyFilter]
+  );
 
   const getDisplayLocation = (booking: Booking & { computedStatus: string }) => {
     if (
@@ -1092,67 +1156,112 @@ const MyBookingsPage = () => {
             <Button
               variant="secondary"
               size="sm"
+              className="rounded-full"
               onClick={() => navigate(`/space/db_${booking.space_id}`)}
             >
               Book Again
             </Button>
 
-            {/* Leave Review Button */}
-            {/* {!booking.hasReview && (
-              reviewingId === booking.id ? (
-                <div className="w-full mt-3 space-y-3">
+            {/* Review Section */}
+            {reviewingId === booking.id ? (
+              <div className="w-full mt-4 p-5 bg-muted/40 rounded-2xl border border-primary/10 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold text-sm">How was your parking experience?</h4>
                   <StarRating
                     rating={reviewRating}
                     onChange={setReviewRating}
                   />
-
-                  <Textarea
-                    placeholder="Share your experience (optional)"
-                    value={reviewText}
-                    onChange={(e) => setReviewText(e.target.value)}
-                    rows={2}
-                  />
-
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      disabled={submittingReview || reviewRating === 0}
-                      onClick={() => handleSubmitReview(booking)}
-                    >
-                      Submit Review
-                    </Button>
-
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setReviewingId(null);
-                        setReviewRating(0);
-                        setReviewText("");
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
                 </div>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setReviewingId(booking.id)}
-                >
-                  <Star className="w-4 h-4 mr-1" />
-                  Leave Review
-                </Button>
-              )
-            )} */}
 
-            {/* {booking.hasReview && (
-              <div className="text-sm text-muted-foreground flex items-center gap-2">
-                <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                Review submitted
+                <Textarea
+                  placeholder="Share your experience (optional)"
+                  value={reviewText}
+                  onChange={(e) => setReviewText(e.target.value)}
+                  className="bg-background/50 border-primary/10 focus-visible:ring-primary/20"
+                  rows={3}
+                />
+
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    className="rounded-full px-5"
+                    disabled={submittingReview || reviewRating === 0}
+                    onClick={() => {
+                      const existing = reviewsByBooking.get(booking.id);
+                      handleSubmitReview(booking, existing?.id);
+                    }}
+                  >
+                    {submittingReview ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                      <Star className="w-4 h-4 mr-2 fill-current" />
+                    )}
+                    {reviewsByBooking.has(booking.id) ? "Update Review" : "Submit Review"}
+                  </Button>
+
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-full px-5"
+                    onClick={() => {
+                      setReviewingId(null);
+                      setReviewRating(0);
+                      setReviewText("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
               </div>
-            )} */}
+            ) : (
+              <>
+                {!booking.hasReview ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full gap-2 border-primary/20 hover:bg-primary/5 transition-colors"
+                    onClick={() => {
+                      setReviewingId(booking.id);
+                      setReviewRating(0);
+                      setReviewText("");
+                    }}
+                  >
+                    <Star className="w-4 h-4" />
+                    Leave Review
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-full gap-2 text-primary hover:bg-primary/5"
+                    onClick={() => {
+                      const review = reviewsByBooking.get(booking.id);
+                      if (review) {
+                        setReviewingId(booking.id);
+                        setReviewRating(review.rating);
+                        setReviewText(review.review_text || "");
+                      }
+                    }}
+                  >
+                    <Star className="w-4 h-4 fill-primary" />
+                    Edit Review
+                  </Button>
+                )}
+              </>
+            )}
+
+            {/* Display submitted review snippet */}
+            {booking.hasReview && reviewingId !== booking.id && (
+              <div className="w-full mt-2 p-3 bg-muted/20 rounded-xl flex gap-3 items-start border border-border/50">
+                <div className="flex gap-0.5 mt-0.5">
+                  <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
+                  <span className="text-xs font-bold">{reviewsByBooking.get(booking.id)?.rating}</span>
+                </div>
+                <p className="text-xs text-muted-foreground line-clamp-1 italic">
+                  "{reviewsByBooking.get(booking.id)?.review_text || "No comments provided."}"
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

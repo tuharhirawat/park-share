@@ -5,35 +5,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Loader2, MapPin, Star, IndianRupee, TrendingUp, Clock, Car, Bike, BarChart3, Plus, Trash2, ImagePlus, X,
-} from "lucide-react";
+import { Loader2, MapPin, Star, IndianRupee, Clock, Car, BarChart3, Plus, Trash2, ImagePlus, X } from "lucide-react";
 import { format, parseISO, subMonths } from "date-fns";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  LineChart, Line,
-} from "recharts";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, } from "@/components/ui/chart";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line, } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useRef } from "react";
+import ReviewMetricsPanel from "@/components/host/ReviewMetricsPanel";
 
 interface Space {
   id: string;
@@ -71,13 +52,37 @@ interface Booking {
   vehicle_type: string;
 }
 
-interface Review {
-  id: string;
-  space_id: string;
-  rating: number;
-  review_text: string | null;
-  created_at: string;
-}
+const isBookingActiveNow = (
+  booking: Booking,
+  now: Date
+) => {
+  if (!booking.booking_date || !booking.start_time)
+    return false;
+
+  const bd = parseISO(booking.booking_date);
+
+  const [sh, sm] =
+    booking.start_time.split(":").map(Number);
+
+  const start = new Date(bd);
+  start.setHours(sh, sm, 0, 0);
+
+  const end = booking.end_time
+    ? (() => {
+      const [eh, em] =
+        booking.end_time.split(":").map(Number);
+
+      const e = new Date(bd);
+      e.setHours(eh, em, 0, 0);
+      return e;
+    })()
+    : new Date(
+      start.getTime() +
+      booking.hours * 3600000
+    );
+
+  return now >= start && now <= end;
+};
 
 const HostDashboard = () => {
   const { user, loading: authLoading } = useAuth();
@@ -85,7 +90,6 @@ const HostDashboard = () => {
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [slots, setSlots] = useState<ParkingSlot[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Slot management
@@ -117,7 +121,6 @@ const HostDashboard = () => {
 
     if (hostSpaces.length === 0) {
       setBookings([]);
-      setReviews([]);
       setSlots([]);
       setLoading(false);
       return;
@@ -125,14 +128,12 @@ const HostDashboard = () => {
 
     const spaceIds = hostSpaces.map(s => s.id);
 
-    const [bookingsRes, reviewsRes, slotsRes] = await Promise.all([
+    const [bookingsRes, slotsRes] = await Promise.all([
       supabase.from("bookings").select("*").in("space_id", spaceIds).order("created_at", { ascending: false }),
-      supabase.from("reviews").select("*").in("space_id", spaceIds).order("created_at", { ascending: false }),
       supabase.from("parking_slots").select("*").in("space_id", spaceIds).order("label"),
     ]);
 
     setBookings((bookingsRes.data as Booking[]) || []);
-    setReviews((reviewsRes.data as Review[]) || []);
     setSlots((slotsRes.data as ParkingSlot[]) || []);
     setLoading(false);
   }, [user]);
@@ -154,7 +155,7 @@ const HostDashboard = () => {
       .on("postgres_changes", { event: "*", schema: "public", table: "reviews" }, () => fetchAll())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [user, spaces.length, fetchAll]);
+  }, [user, spaces, fetchAll]);
 
   // Slot management handlers
   const handleAddSlot = async () => {
@@ -198,16 +199,41 @@ const HostDashboard = () => {
       return;
     }
     setUploadingImage(true);
-    const newUrls = [...(space.image_urls || [])];
-    for (const file of files) {
-      if (file.size > 5 * 1024 * 1024) { toast.error("Each image must be under 5 MB"); continue; }
-      const ext = file.name.split(".").pop();
-      const path = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage.from("parking-images").upload(path, file);
-      if (error) { toast.error("Upload failed"); continue; }
-      const { data } = supabase.storage.from("parking-images").getPublicUrl(path);
-      newUrls.push(data.publicUrl);
-    }
+    const uploadedUrls = (
+      await Promise.all(
+        files.map(async file => {
+          if (file.size > 5 * 1024 * 1024) {
+            toast.error("Each image under 5MB");
+            return null;
+          }
+
+          const ext = file.name.split(".").pop();
+
+          const path = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)
+            }.${ext}`;
+
+          const { error } = await supabase.storage
+            .from("parking-images")
+            .upload(path, file);
+
+          if (error) {
+            toast.error("Upload failed");
+            return null;
+          }
+
+          return supabase.storage
+            .from("parking-images")
+            .getPublicUrl(path)
+            .data.publicUrl;
+        })
+      )
+    ).filter(Boolean);
+
+    const newUrls = [
+      ...(space.image_urls || []),
+      ...uploadedUrls
+    ];
+
     await supabase.from("parking_spaces").update({ image_urls: newUrls }).eq("id", imageSpaceId);
     setUploadingImage(false);
     toast.success("Images updated!");
@@ -224,6 +250,16 @@ const HostDashboard = () => {
   };
 
   const nonCancelledBookings = useMemo(() => bookings.filter(b => b.status !== "cancelled"), [bookings]);
+  const bookingsBySpace = useMemo(() => {
+    const grouped: Record<string, Booking[]> = {};
+    nonCancelledBookings.forEach(booking => {
+      if (!grouped[booking.space_id]) {
+        grouped[booking.space_id] = [];
+      }
+      grouped[booking.space_id].push(booking);
+    });
+    return grouped;
+  }, [nonCancelledBookings]);
   const totalEarnings = useMemo(() => nonCancelledBookings.reduce((s, b) => s + Number(b.total_price), 0), [nonCancelledBookings]);
 
   const earningsOverTime = useMemo(() => {
@@ -239,8 +275,8 @@ const HostDashboard = () => {
   }, [nonCancelledBookings]);
 
   const bookingsPerListing = useMemo(
-    () => spaces.map(s => ({ name: s.title.length > 20 ? s.title.slice(0, 20) + "…" : s.title, bookings: nonCancelledBookings.filter(b => b.space_id === s.id).length })),
-    [spaces, nonCancelledBookings]
+    () => spaces.map(s => ({ name: s.title.length > 20 ? s.title.slice(0, 20) + "…" : s.title, bookings: (bookingsBySpace[s.id] || []).length })),
+    [spaces, bookingsBySpace]
   );
 
   const peakHours = useMemo(() => {
@@ -252,17 +288,8 @@ const HostDashboard = () => {
   const liveStatus = useMemo(() => {
     const now = new Date();
     return spaces.map(s => {
-      const spaceBookings = nonCancelledBookings.filter(b => b.space_id === s.id);
-      const activeNow = spaceBookings.filter(b => {
-        if (!b.booking_date || !b.start_time) return false;
-        const bd = parseISO(b.booking_date);
-        const [sh, sm] = b.start_time.split(":").map(Number);
-        const start = new Date(bd); start.setHours(sh, sm, 0, 0);
-        const end = b.end_time
-          ? (() => { const [eh, em] = b.end_time!.split(":").map(Number); const e = new Date(bd); e.setHours(eh, em, 0, 0); return e; })()
-          : new Date(start.getTime() + b.hours * 3600000);
-        return now >= start && now <= end;
-      });
+      const spaceBookings = bookingsBySpace[s.id] || [];
+      const activeNow = spaceBookings.filter(b => isBookingActiveNow(b, now));
       const upcomingToday = spaceBookings.filter(b => {
         if (!b.booking_date || !b.start_time) return false;
         const bd = parseISO(b.booking_date);
@@ -272,23 +299,34 @@ const HostDashboard = () => {
       });
       return { ...s, activeCount: activeNow.length, upcomingCount: upcomingToday.length, totalBookings: spaceBookings.length };
     });
-  }, [spaces, nonCancelledBookings]);
+  }, [spaces, bookingsBySpace]);
 
-  const avgRating = reviews.length > 0 ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1) : "N/A";
+  const avgRating = useMemo(
+    () =>
+      spaces.length
+        ? (
+          spaces.reduce(
+            (sum, s) => sum + Number(s.rating || 0),
+            0
+          ) / spaces.length
+        ).toFixed(1)
+        : "N/A",
+    [spaces]
+  );
 
   const activeBookingsCount = useMemo(() => {
     const now = new Date();
-    return nonCancelledBookings.filter(b => {
-      if (!b.booking_date || !b.start_time) return false;
-      const bd = parseISO(b.booking_date);
-      const [sh, sm] = b.start_time.split(":").map(Number);
-      const start = new Date(bd); start.setHours(sh, sm, 0, 0);
-      const end = b.end_time
-        ? (() => { const [eh, em] = b.end_time!.split(":").map(Number); const e = new Date(bd); e.setHours(eh, em, 0, 0); return e; })()
-        : new Date(start.getTime() + b.hours * 3600000);
-      return now >= start && now <= end;
-    }).length;
+
+    return nonCancelledBookings.filter(
+      b => isBookingActiveNow(b, now)
+    ).length;
+
   }, [nonCancelledBookings]);
+
+  const chartConfig = {
+    earnings: { label: "Earnings (₹)", color: "hsl(var(--primary))" },
+    bookings: { label: "Bookings", color: "hsl(var(--primary))" },
+  };
 
   if (authLoading || loading) {
     return (
@@ -307,14 +345,8 @@ const HostDashboard = () => {
     );
   }
 
-  const chartConfig = {
-    earnings: { label: "Earnings (₹)", color: "hsl(var(--primary))" },
-    bookings: { label: "Bookings", color: "hsl(var(--primary))" },
-  };
-
   const managingSpace = spaces.find(s => s.id === managingSpaceId);
   const managingSlots = slots.filter(s => s.space_id === managingSpaceId);
-  const imageSpace = spaces.find(s => s.id === imageSpaceId);
 
   return (
     <div className="min-h-screen bg-background">
@@ -340,18 +372,18 @@ const HostDashboard = () => {
               <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1"><IndianRupee className="w-4 h-4" /> Earnings</div>
               <p className="text-2xl font-bold text-foreground">₹{totalEarnings.toLocaleString()}</p>
             </div>
-            {/* <div className="bg-card rounded-2xl p-5 card-shadow">
+            <div className="bg-card rounded-2xl p-5 card-shadow">
               <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1"><Star className="w-4 h-4" /> Avg Rating</div>
               <p className="text-2xl font-bold text-foreground">{avgRating}</p>
-            </div> */}
+            </div>
           </div>
 
           <Tabs defaultValue="listings" className="space-y-6">
-            <TabsList className="grid w-full max-w-2xl grid-cols-4">
+            <TabsList className="grid w-full max-w-2xl grid-cols-5">
               <TabsTrigger value="listings">My Listings</TabsTrigger>
               <TabsTrigger value="earnings">Earnings</TabsTrigger>
               <TabsTrigger value="analytics">Analytics</TabsTrigger>
-              {/* <TabsTrigger value="reviews">Reviews</TabsTrigger> */}
+              <TabsTrigger value="reviews">Reviews</TabsTrigger>
               <TabsTrigger value="live">Live Status</TabsTrigger>
             </TabsList>
 
@@ -364,7 +396,10 @@ const HostDashboard = () => {
                       <div className="space-y-1">
                         <h3 className="font-bold text-foreground">{s.title}</h3>
                         <p className="text-sm text-muted-foreground flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {s.address}, {s.city}</p>
-                        <p className="text-xs text-muted-foreground">Capacity: {s.car_slots} car slots · {s.bike_slots} bike slots · {s.totalBookings} bookings</p>
+                        <p className="text-xs text-muted-foreground">
+                          Capacity: {s.car_slots} car slots · {s.bike_slots} bike slots · {s.totalBookings} bookings
+                          {s.review_count > 0 && ` · ${s.rating} ★ (${s.review_count} reviews)`}
+                        </p>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <Badge variant="outline" className={s.activeCount > 0 ? "bg-green-500/10 text-green-600 border-green-500/20" : s.available ? "bg-blue-500/10 text-blue-600 border-blue-500/20" : "bg-red-500/10 text-red-600 border-red-500/20"}>
@@ -419,7 +454,7 @@ const HostDashboard = () => {
               <div className="mt-6 space-y-3">
                 <h3 className="font-bold text-foreground">Earnings Per Listing</h3>
                 {spaces.map(s => {
-                  const earned = nonCancelledBookings.filter(b => b.space_id === s.id).reduce((sum, b) => sum + Number(b.total_price), 0);
+                  const earned = (bookingsBySpace[s.id] || []).reduce((sum, b) => sum + Number(b.total_price), 0);
                   return (
                     <div key={s.id} className="bg-card rounded-xl p-4 card-shadow flex justify-between items-center">
                       <span className="text-foreground font-medium">{s.title}</span>
@@ -460,32 +495,12 @@ const HostDashboard = () => {
               </div>
             </TabsContent>
 
-            {/* Reviews */}
-            {/* <TabsContent value="reviews">
-              {reviews.length === 0 ? (
-                <p className="text-muted-foreground text-center py-8">No reviews yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {reviews.map(r => {
-                    const sp = spaces.find(s => s.id === r.space_id);
-                    return (
-                      <div key={r.id} className="bg-card rounded-xl p-5 card-shadow space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium text-foreground text-sm">{sp?.title || "Unknown"}</span>
-                          <span className="text-xs text-muted-foreground">{format(new Date(r.created_at), "MMM d, yyyy")}</span>
-                        </div>
-                        <div className="flex gap-0.5">
-                          {[1, 2, 3, 4, 5].map(i => (
-                            <Star key={i} className={`w-4 h-4 ${i <= r.rating ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground/30"}`} />
-                          ))}
-                        </div>
-                        {r.review_text && <p className="text-sm text-muted-foreground">{r.review_text}</p>}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </TabsContent> */}
+            <TabsContent value="reviews">
+              <ReviewMetricsPanel
+                hostId={user.id}
+              />
+            </TabsContent>
+
 
             {/* Live Status */}
             <TabsContent value="live">
