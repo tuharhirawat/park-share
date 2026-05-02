@@ -40,10 +40,15 @@ const Navbar = () => {
   const handleLogout = async () => {
     await signOut();
     toast.success("Logged out successfully");
-    navigate("/");
+    navigate("/", { replace: true });
   };
 
   const handleHostAction = () => {
+    if (!user) {
+      navigate("/login");
+      return;
+    }
+
     if (isHost) {
       navigate("/host");
     } else {

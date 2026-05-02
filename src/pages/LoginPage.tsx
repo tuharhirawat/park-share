@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,8 @@ type LoginForm = z.infer<typeof loginSchema>;
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = (location.state as { from?: { pathname: string } })?.from?.pathname || "/";
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -39,7 +41,9 @@ const LoginPage = () => {
       toast.error(error.message);
     } else {
       toast.success("Logged in successfully!");
-      navigate("/");
+      setTimeout(() => {
+        navigate(from, { replace: true });
+      }, 300);
     }
   };
 
