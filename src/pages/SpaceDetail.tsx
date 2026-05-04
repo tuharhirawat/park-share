@@ -74,8 +74,14 @@ const SpaceDetail = () => {
 
   // Available slots
   const [slots, setSlots] = useState<ParkingSlot[]>([]);
+  const [availableVehicles, setAvailableVehicles] = useState<UserVehicle[]>([]);
   const [availableSlots, setAvailableSlots] = useState<ParkingSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+
+  const filteredVehicleSlots =
+    slots.filter(
+      s => s.vehicle_type === selectedVehicle
+    );
 
   // Fetch user vehicles
   useEffect(() => {
@@ -138,6 +144,41 @@ const SpaceDetail = () => {
     }
   }, [startTime]);
 
+  const checkVehicleAvailability = useCallback(async () => {
+    if (!selectedDate || !userVehicles.length) {
+      setAvailableVehicles(
+        userVehicles.filter(v =>
+          space?.vehicleTypes.includes(v.vehicle_type as any)
+        )
+      );
+      return;
+    }
+
+    const actualStartTime = isFullDay ? "00:00" : startTime;
+    const actualEndTime = isFullDay ? "23:59" : calculateEndTime(startTime, duration);
+
+    const { data: bookings } = await supabase
+      .from("bookings")
+      .select("vehicle_id")
+      .eq("booking_date", format(selectedDate, "yyyy-MM-dd"))
+      .in("status", ["pending", "confirmed"])
+      .lt("start_time", formatTime(actualEndTime))
+      .gt("end_time", formatTime(actualStartTime));
+
+    const bookedVehicleIds = new Set((bookings || []).map(b => b.vehicle_id));
+
+    const filtered = userVehicles.filter(v =>
+      !bookedVehicleIds.has(v.id) &&
+      space?.vehicleTypes.includes(v.vehicle_type as any)
+    );
+
+    setAvailableVehicles(filtered);
+  }, [userVehicles, selectedDate, startTime, duration, isFullDay, space?.vehicleTypes]);
+
+  useEffect(() => {
+    checkVehicleAvailability();
+  }, [checkVehicleAvailability]);
+
   const calculateEndTime = (start: string, duration: number) => {
     const [h, m] = start.split(":").map(Number);
     const totalMinutes = h * 60 + m + duration;
@@ -177,7 +218,7 @@ const SpaceDetail = () => {
       .select("slot_id")
       .eq("space_id", space._dbId)
       .eq("booking_date", format(selectedDate, "yyyy-MM-dd"))
-      .neq("status", "cancelled")
+      .in("status", ["pending", "confirmed"])
       .lt("start_time", formatTime(actualEndTime))
       .gt("end_time", formatTime(actualStartTime))
       .not("slot_id", "is", null);
@@ -260,36 +301,57 @@ const SpaceDetail = () => {
     }
 
     setBooking(true);
+    let bookingId: string | null = null;
 
     try {
       const dbSpaceId = space._dbId;
       const actualStartTime = isFullDay ? "00:00" : startTime;
       const actualEndTime = isFullDay ? "23:59" : calculateEndTime(startTime, duration);
 
-      // Check capacity
-      if (space._dbId) {
-        const { data: capacityCheck, error: capError } = await supabase.rpc(
-          "check_parking_capacity",
-          {
-            p_space_id: space._dbId,
-            p_vehicle_type: selectedVehicle,
-            p_booking_date: format(selectedDate!, "yyyy-MM-dd"),
-            p_start_time: formatTime(actualStartTime),
-            p_end_time: formatTime(actualEndTime),
-            p_exclude_booking_id: null,
-          }
-        );
-
-        if (capError) console.error("Capacity check error:", capError);
-        else if (capacityCheck) {
-          const result = capacityCheck as Record<string, unknown>;
-          if (!result.available) {
-            toast.error((result.error as string) || "No slots available for this time");
-            setBooking(false);
-            return;
+      // Check capacity before proceeding
+      const { data: lockData, error: lockError } = await supabase.functions.invoke(
+        "create-booking-lock",
+        {
+          body: {
+            booking_data: {
+              space_id: dbSpaceId,
+              space_title: space.title,
+              space_address: space.address,
+              space_city: space.city,
+              duration_minutes: Math.floor(effectiveHours * 60),
+              total_price: totalPrice,
+              booking_date: format(selectedDate!, "yyyy-MM-dd"),
+              start_time: actualStartTime,
+              end_time: actualEndTime,
+              vehicle_type: selectedVehicle,
+              vehicle_id: selectedVehicleId,
+              slot_id: selectedSlotId || null,
+              user_id: user.id
+            }
           }
         }
+      );
+
+      if (lockError) {
+        console.error("Lock invoke error:", lockError);
+        toast.error("Something went wrong. Please try again.");
+        setBooking(false);
+        return;
       }
+
+      if (!lockData || !lockData.success) {
+
+        if (lockData?.error === "VEHICLE_CONFLICT") {
+          toast.error("Slot just got booked. Please select another.");
+        } else {
+          toast.error("Something went wrong. Please try again.");
+        }
+
+        setBooking(false);
+        return;
+      }
+
+      bookingId = lockData.booking_id;
 
       const loaded = await loadRazorpayScript();
       if (!loaded) throw new Error("Failed to load payment gateway");
@@ -319,7 +381,7 @@ const SpaceDetail = () => {
         order_id: orderData.order_id,
         handler: async (response: any) => {
           try {
-            const { data: verifyData, error: verifyError } = await supabase.functions.invoke(
+            const { data: verifyData } = await supabase.functions.invoke(
               "verify-razorpay-payment",
               {
                 body: {
@@ -327,6 +389,7 @@ const SpaceDetail = () => {
                   razorpay_payment_id: response.razorpay_payment_id,
                   razorpay_signature: response.razorpay_signature,
                   booking_data: {
+                    booking_id: bookingId,
                     space_id: dbSpaceId,
                     space_title: space.title,
                     space_address: space.address,
@@ -344,25 +407,79 @@ const SpaceDetail = () => {
               }
             );
 
-            if (verifyError || !verifyData?.success) {
-              toast.error("Payment verification failed. Contact support.");
+            if (!verifyData?.success) {
+
+              if (verifyData?.error === "VEHICLE_CONFLICT") {
+                await supabase.functions.invoke("refund-payment", {
+                  body: {
+                    payment_id: response.razorpay_payment_id
+                  }
+                });
+
+                toast.error("Vehicle already booked. Refund initiated.");
+                return;
+              }
+
+              toast.error(verifyData.message || "Booking failed. Contact support.");
+              return;
             } else {
               toast.success("Booking confirmed! 🎉");
               navigate("/my-bookings");
             }
           } catch {
-            toast.error("Something went wrong verifying payment.");
+            if (response?.razorpay_payment_id) {
+              await supabase.functions.invoke("refund-payment", {
+                body: {
+                  payment_id: response.razorpay_payment_id
+                }
+              });
+            }
+
+            toast.error("Something went wrong. Amount refunded.");
           }
           setBooking(false);
         },
         prefill: { email: user.email },
         theme: { color: "#2a9d7c" },
-        modal: { ondismiss: () => setBooking(false) },
+        modal: {
+          ondismiss: async () => {
+            if (bookingId) {
+              await supabase
+                .from("bookings")
+                .update({ status: "payment_abandoned" })
+                .eq("id", bookingId)
+                .eq("status", "pending");
+            }
+
+            setBooking(false);
+          }
+        },
       };
 
       const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", async () => {
+        if (bookingId) {
+          await supabase
+            .from("bookings")
+            .update({ status: "payment_failed" })
+            .eq("id", bookingId)
+            .eq("status", "pending");
+        }
+
+        toast.error("Payment failed. Please try again.");
+        setBooking(false);
+      });
       rzp.open();
     } catch (err: any) {
+
+      if (bookingId) {
+        await supabase
+          .from("bookings")
+          .update({ status: "payment_abandoned" })
+          .eq("id", bookingId)
+          .eq("status", "pending");
+      }
+
       toast.error(err.message || "Payment failed");
       setBooking(false);
     }
@@ -395,18 +512,30 @@ const SpaceDetail = () => {
   const serviceFee = Math.round(basePrice * PLATFORM_FEE_PERCENTAGE);
   const totalPrice = basePrice + serviceFee;
 
+  const hasSlotsForVehicle = slots.some(
+    s => s.vehicle_type === selectedVehicle
+  );
+
+  const isSlotUnavailable =
+    selectedVehicle &&
+    (
+      !hasSlotsForVehicle ||
+      availableSlots.length === 0
+    );
+
+  const isBookingDisabled =
+    !space.available ||
+    bookingClosedToday ||
+    booking ||
+    !selectedDate ||
+    !selectedVehicleId ||
+    isSlotUnavailable ||
+    (filteredVehicleSlots.length > 0 && !selectedSlotId);
+
   const vehicleIcons: Record<string, React.ReactNode> = {
     bike: <Bike className="w-4 h-4" />,
     car: <Car className="w-4 h-4" />,
   };
-
-  const filteredVehicleSlots =
-    slots.filter(
-      s => s.vehicle_type === selectedVehicle
-    );
-
-  // Filter user vehicles by space's supported types
-  const compatibleVehicles = userVehicles.filter(v => space.vehicleTypes.includes(v.vehicle_type as any));
 
   return (
     <div className="min-h-screen bg-background">
@@ -461,39 +590,6 @@ const SpaceDetail = () => {
                   {space.pricePerDay > 0 && <div className="text-sm text-muted-foreground">or ₹{space.pricePerDay}/day</div>}
                 </div>
 
-                {/* Vehicle selector */}
-                <div>
-                  <label className="text-sm font-semibold text-foreground mb-2 block">Select Vehicle</label>
-                  {loadingVehicles ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div>
-                  ) : compatibleVehicles.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">
-                      <p>No compatible vehicles found.</p>
-                      <Button variant="link" className="p-0 h-auto text-primary" onClick={() => navigate("/vehicles")}>Add a vehicle →</Button>
-                    </div>
-                  ) : (
-                    <Select value={selectedVehicleId} onValueChange={(vid) => {
-                      setSelectedVehicleId(vid);
-                      const veh = compatibleVehicles.find(v => v.id === vid);
-                      if (veh) setSelectedVehicle(veh.vehicle_type);
-                      setSelectedSlotId("");
-                      setErrors(prev => ({ ...prev, vehicle: "" }));
-                    }}>
-                      <SelectTrigger className={cn(errors.vehicle && "border-destructive")}>
-                        <SelectValue placeholder="Choose your vehicle" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {compatibleVehicles.map((v) => (
-                          <SelectItem key={v.id} value={v.id}>
-                            {v.brand_model} — {v.registration_number} ({v.vehicle_type})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {errors.vehicle && <p className="text-xs text-destructive mt-1">{errors.vehicle}</p>}
-                </div>
-
                 {/* Date picker */}
                 <div>
                   <label className="text-sm font-semibold text-foreground mb-2 block">Date</label>
@@ -509,6 +605,39 @@ const SpaceDetail = () => {
                     </PopoverContent>
                   </Popover>
                   {errors.date && <p className="text-xs text-destructive mt-1">{errors.date}</p>}
+                </div>
+
+                {/* Vehicle selector */}
+                <div>
+                  <label className="text-sm font-semibold text-foreground mb-2 block">Select Vehicle</label>
+                  {loadingVehicles ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div>
+                  ) : availableVehicles.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">
+                      <p>No available vehicles for selected time.</p>
+                      <Button variant="link" className="p-0 h-auto text-primary" onClick={() => navigate("/vehicles")}>Add a vehicle →</Button>
+                    </div>
+                  ) : (
+                    <Select value={selectedVehicleId} onValueChange={(vid) => {
+                      setSelectedVehicleId(vid);
+                      const veh = availableVehicles.find(v => v.id === vid);
+                      if (veh) setSelectedVehicle(veh.vehicle_type);
+                      setSelectedSlotId("");
+                      setErrors(prev => ({ ...prev, vehicle: "" }));
+                    }}>
+                      <SelectTrigger className={cn(errors.vehicle && "border-destructive")}>
+                        <SelectValue placeholder="Choose your vehicle" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableVehicles.map((v) => (
+                          <SelectItem key={v.id} value={v.id}>
+                            {v.brand_model} — {v.registration_number} ({v.vehicle_type})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {errors.vehicle && <p className="text-xs text-destructive mt-1">{errors.vehicle}</p>}
                 </div>
 
                 {/* Full day toggle */}
@@ -745,29 +874,17 @@ const SpaceDetail = () => {
                 </div>
 
                 <Button className="w-full rounded-xl gap-2" size="lg"
-                  disabled={
-                    !space.available ||
-                    bookingClosedToday ||
-                    booking ||
-                    !selectedDate ||
-                    !selectedVehicleId ||
-                    (
-                      filteredVehicleSlots.length > 0 &&
-                      (
-                        availableSlots.length === 0 ||
-                        !selectedSlotId
-                      )
-                    )
-                  }
+                  disabled={isBookingDisabled}
                   onClick={handleBookNow}
                 >
                   <Clock className="w-4 h-4" />
-                  {booking ? "Processing..." : space.available ? "Pay & Book Now" : "Unavailable"}
+                  {!space.available || isSlotUnavailable
+                    ? "Unavailable"
+                    : booking
+                      ? "Processing..."
+                      : "Pay & Book Now"
+                  }
                 </Button>
-                {/* <Button variant="outline" className="w-full rounded-xl gap-2" size="lg"
-                  onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${space.lat},${space.lng}`, "_blank")}>
-                  <Navigation className="w-4 h-4" /> Get Directions
-                </Button> */}
               </div>
             </div>
           </div>

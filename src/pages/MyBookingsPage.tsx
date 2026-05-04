@@ -710,6 +710,7 @@ const MyBookingsPage = () => {
         )
       `)
       .eq("user_id", user.id)
+      .in("status", ["confirmed", "cancelled"])
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -731,7 +732,7 @@ const MyBookingsPage = () => {
     const { data } = await supabase
       .from("reviews")
       .select("id, booking_id, rating, review_text")
-      .eq("user_id", user.id);
+      .eq("user_id", user.id)
     if (data) setReviews(data as Review[]);
   }, [user]);
 
@@ -1141,18 +1142,20 @@ const MyBookingsPage = () => {
       updateData.end_time = rescheduleConfirmation.rescheduleEndTime;
     }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("bookings")
       .update(updateData)
-      .eq("id", rescheduleConfirmation.bookingId);
+      .eq("id", rescheduleConfirmation.bookingId)
+      .select();
 
     setRescheduleLoading(false);
 
-    if (error) {
+    if (error || !data || data.length === 0) {
       toast.error(`Failed to ${rescheduleConfirmation.type} booking`);
       console.error(error);
     } else {
       toast.success(`Booking ${rescheduleConfirmation.type === "extend" ? "extended" : "rescheduled"} successfully!`);
+      
       setReschedulingId(null);
       setRescheduleConfirmation(null);
       setRescheduleDate(undefined);
@@ -1160,6 +1163,7 @@ const MyBookingsPage = () => {
       setExtendingId(null);
       setExtendMinutes(15);
       setApplyGraceExtension(false);
+
       fetchBookings();
     }
   };
@@ -1282,6 +1286,8 @@ const MyBookingsPage = () => {
 
   const renderBookingCard = (booking: (typeof enrichedBookings)[0], showActions: boolean) => {
     const cfg = statusConfig[booking.computedStatus];
+    const cancelledBooking = booking.status === "cancelled";
+
     return (
       <div key={booking.id} className={`bg-card rounded-2xl p-6 card-shadow flex flex-col gap-4 ${booking.computedStatus === "active" ? "ring-2 ring-green-500/30" : ""}`}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1290,7 +1296,7 @@ const MyBookingsPage = () => {
               <h3 className="font-display font-bold text-foreground text-lg">{booking.space_title}</h3>
               <Badge variant="outline" className={cfg.color}>{cfg.label}</Badge>
               {booking.vehicle_type && <Badge variant="secondary" className="capitalize text-xs">{booking.vehicle_type}</Badge>}
-              {canExtendBooking(booking) && (booking.has_used_free_extension ? (
+              {canExtendBooking(booking) && !cancelledBooking && (booking.has_used_free_extension ? (
                 <Badge className="bg-yellow-500/20 text-yellow-700 text-xs">
                   Grace Used
                 </Badge>
@@ -1771,7 +1777,7 @@ const MyBookingsPage = () => {
           onCancel={() => setReduceConfirmation(null)}
         />
       )}
-      
+
     </div>
   );
 };

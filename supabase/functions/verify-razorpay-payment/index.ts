@@ -98,111 +98,168 @@ serve(async (req: Request) => {
         error: capacityCheck.error || "No slots available",
         success: false,
       }), {
-        status: 400,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    
+
     if (!booking_data.start_time || !booking_data.end_time) {
       throw new Error("Start time and end time are required");
     }
 
-    const startTime = formatTime(booking_data.start_time)!;
-    const endTime = formatTime(booking_data.end_time)!;
-    const bookingDate = booking_data.booking_date;
+    // const startTime = formatTime(booking_data.start_time)!;
+    // const endTime = formatTime(booking_data.end_time)!;
+    // const bookingDate = booking_data.booking_date;
 
     // 🔐 Fetch correct price per hour
-    const { data: space } = await supabaseAdmin
-      .from("parking_spaces")
-      .select("price_per_hour")
-      .eq("id", booking_data.space_id)
-      .single();
+    // const { data: space } = await supabaseAdmin
+    //   .from("parking_spaces")
+    //   .select("price_per_hour")
+    //   .eq("id", booking_data.space_id)
+    //   .single();
 
-    if (!space) {
-      throw new Error("Failed to fetch price_per_hour");
+    // if (!space) {
+    //   throw new Error("Failed to fetch price_per_hour");
+    // }
+
+    // const durationMinutes = booking_data.duration_minutes || 0;
+    // const safeTotalPrice = booking_data.total_price;
+
+    if (!booking_data.booking_id) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "MISSING_LOCK"
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    const durationMinutes = booking_data.duration_minutes || 0;
-    const safeTotalPrice = booking_data.total_price;
-
-    if (booking_data.booking_id) {
-      const { error: updateError } = await supabaseAdmin
-        .from("bookings")
-        .update({
-          space_title: booking_data.space_title,
-          space_address: booking_data.space_address,
-          space_city: booking_data.space_city,
-          duration_minutes: durationMinutes,
-          total_price: safeTotalPrice,
-          booking_date: bookingDate,
-          start_time: startTime,
-          end_time: endTime,
-          vehicle_type: booking_data.vehicle_type || "car",
-          vehicle_id: booking_data.vehicle_id || null,
-          slot_id: booking_data.slot_id || null,
-          payment_id: razorpay_payment_id,
-          status: "confirmed",
-          has_used_free_extension:
-            booking_data.has_used_free_extension !== undefined
-              ? booking_data.has_used_free_extension
-              : false,
-          free_extension_minutes_used:
-            booking_data.free_extension_minutes_used !== undefined
-              ? booking_data.free_extension_minutes_used
-              : 0,
-        })
-        .eq("id", booking_data.booking_id)
-
-      if (updateError) {
-        console.error("Booking update error:", updateError);
-        return new Response(JSON.stringify({
-          error: updateError.message,
-          details: updateError,
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    } else {
-
-      const originalDurationMinutes = booking_data.duration_minutes || 0;
-      const startDateTime = `${booking_data.booking_date} ${startTime}`;
-      const endDateTime = `${booking_data.booking_date} ${endTime}`;
-
-      const { error: insertError } = await supabaseAdmin.from("bookings").insert({
-        user_id: user.id,
-        space_id: booking_data.space_id,
+    const { error: updateError } = await supabaseAdmin
+      .from("bookings")
+      .update({
+        booking_date: booking_data.booking_date,
+        start_time: formatTime(booking_data.start_time),
+        end_time: formatTime(booking_data.end_time),
+        duration_minutes: booking_data.duration_minutes,
+        total_price: booking_data.total_price,
         space_title: booking_data.space_title,
         space_address: booking_data.space_address,
         space_city: booking_data.space_city,
-        duration_minutes: originalDurationMinutes,
-        total_price: safeTotalPrice,
-        booking_date: bookingDate,
-        start_time: startTime,
-        end_time: endTime,
         vehicle_type: booking_data.vehicle_type || "car",
         vehicle_id: booking_data.vehicle_id || null,
         slot_id: booking_data.slot_id || null,
+        has_used_free_extension: booking_data.has_used_free_extension ?? false,
+        free_extension_minutes_used: booking_data.free_extension_minutes_used ?? 0,
         payment_id: razorpay_payment_id,
         status: "confirmed",
-        original_start_time: startDateTime,
-        original_end_time: endDateTime,
-        original_duration_minutes: originalDurationMinutes,
-        has_used_free_extension: false,
-        free_extension_minutes_used: 0,
-      });
+        expires_at: null
+      })
+      .eq("id", booking_data.booking_id);
 
-      if (insertError) {
-        console.error("Booking insert error:", insertError);
-        return new Response(JSON.stringify({
-          error: insertError.message,
-          details: insertError,
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+    if (updateError) {
+      console.error("Booking update error:", updateError);
+
+      return new Response(JSON.stringify({
+        success: false,
+        error: "BOOKING_UPDATE_FAILED",
+        message: updateError.message
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
+
+    // if (booking_data.booking_id) {
+    //   const { error: updateError } = await supabaseAdmin
+    //     .from("bookings")
+    //     .update({
+    //       space_title: booking_data.space_title,
+    //       space_address: booking_data.space_address,
+    //       space_city: booking_data.space_city,
+    //       duration_minutes: durationMinutes,
+    //       total_price: safeTotalPrice,
+    //       booking_date: bookingDate,
+    //       start_time: startTime,
+    //       end_time: endTime,
+    //       vehicle_type: booking_data.vehicle_type || "car",
+    //       vehicle_id: booking_data.vehicle_id || null,
+    //       slot_id: booking_data.slot_id || null,
+    //       payment_id: razorpay_payment_id,
+    //       status: "confirmed",
+    //       has_used_free_extension:
+    //         booking_data.has_used_free_extension !== undefined
+    //           ? booking_data.has_used_free_extension
+    //           : false,
+    //       free_extension_minutes_used:
+    //         booking_data.free_extension_minutes_used !== undefined
+    //           ? booking_data.free_extension_minutes_used
+    //           : 0,
+    //     })
+    //     .eq("id", booking_data.booking_id)
+
+    //   if (updateError) {
+    //     console.error("Booking update error:", updateError);
+    //     return new Response(JSON.stringify({
+    //       error: updateError.message,
+    //       details: updateError,
+    //     }), {
+    //       status: 500,
+    //       headers: { ...corsHeaders, "Content-Type": "application/json" },
+    //     });
+    //   }
+    // } 
+
+    // else {
+
+    //   const startDateTime = `${booking_data.booking_date} ${startTime}`;
+    //   const endDateTime = `${booking_data.booking_date} ${endTime}`;
+
+    //   const { error: insertError } = await supabaseAdmin.from("bookings").insert({
+    //     user_id: user.id,
+    //     space_id: booking_data.space_id,
+    //     space_title: booking_data.space_title,
+    //     space_address: booking_data.space_address,
+    //     space_city: booking_data.space_city,
+    //     duration_minutes: durationMinutes,
+    //     total_price: safeTotalPrice,
+    //     booking_date: bookingDate,
+    //     start_time: startTime,
+    //     end_time: endTime,
+    //     vehicle_type: booking_data.vehicle_type || "car",
+    //     vehicle_id: booking_data.vehicle_id || null,
+    //     slot_id: booking_data.slot_id || null,
+    //     payment_id: razorpay_payment_id,
+    //     status: "confirmed",
+    //     original_start_time: startDateTime,
+    //     original_end_time: endDateTime,
+    //     original_duration_minutes: durationMinutes,
+    //     has_used_free_extension: false,
+    //     free_extension_minutes_used: 0,
+    //   });
+
+    //   if (insertError) {
+    //     console.error("Booking insert error:", insertError);
+
+    //     if (insertError.message.includes("no_overlap_per_vehicle")) {
+    //       return new Response(JSON.stringify({
+    //         success: false,
+    //         error: "VEHICLE_CONFLICT"
+    //       }), {
+    //         status: 200,
+    //         headers: { ...corsHeaders, "Content-Type": "application/json" },
+    //       });
+    //     }
+
+    //     return new Response(JSON.stringify({
+    //       success: false,
+    //       error: insertError.message
+    //     }), {
+    //       status: 200,
+    //       headers: { ...corsHeaders, "Content-Type": "application/json" },
+    //     });
+    //   }
+    // }
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
