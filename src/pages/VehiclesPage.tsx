@@ -47,6 +47,15 @@ const vehicleSchema = z.object({
 
 type VehicleForm = z.infer<typeof vehicleSchema>;
 
+const formatRegistration = (reg: string) => {
+  if (!reg) return reg;
+
+  const upper = reg.toUpperCase();
+  const parts = upper.match(/[A-Z]+|\d+/g);
+
+  return parts ? parts.join(" ") : upper;
+};
+
 const VehiclesPage = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -68,11 +77,13 @@ const VehiclesPage = () => {
   const fetchVehicles = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+
     const { data, error } = await supabase
       .from("vehicles")
       .select("id, vehicle_type, brand_model, registration_number")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
+
     if (error) toast.error("Failed to load vehicles");
     else setVehicles((data as Vehicle[]) || []);
     setLoading(false);
@@ -85,19 +96,41 @@ const VehiclesPage = () => {
   const onAdd = async (values: VehicleForm) => {
     if (!user) return;
     setAdding(true);
+
+    const normalizedReg = values.registration_number
+      .replace(/\s+/g, "")
+      .replace(/-/g, "")
+      .toUpperCase();
+
+    const alreadyExists = vehicles.some(
+      (v) =>
+        v.registration_number.replace(/\s+/g, "").replace(/-/g, "").toUpperCase() === normalizedReg
+    );
+
+    if (alreadyExists) {
+      form.setError("registration_number", {
+        message: "Vehicle with this registration already exists",
+      });
+      setAdding(false);
+      return;
+    }
+
     const { error } = await supabase.from("vehicles").insert({
       user_id: user.id,
       vehicle_type: values.vehicle_type,
       brand_model: values.brand_model,
-      registration_number: values.registration_number.toUpperCase(),
+      registration_number: normalizedReg,
     });
     setAdding(false);
+
     if (error) {
+
       if (error.message.includes("idx_vehicles_reg_unique") || error.code === "23505") {
         form.setError("registration_number", { message: "This registration number is already registered" });
       } else {
         toast.error(error.message);
       }
+
     } else {
       toast.success("Vehicle added!");
       form.reset();
@@ -108,8 +141,10 @@ const VehiclesPage = () => {
 
   const onDelete = async (id: string) => {
     setDeleting(id);
+
     const { error } = await supabase.from("vehicles").delete().eq("id", id);
     setDeleting(null);
+    
     if (error) toast.error("Failed to delete vehicle");
     else {
       toast.success("Vehicle removed");
@@ -196,7 +231,7 @@ const VehiclesPage = () => {
                         <p className="font-semibold text-foreground">{v.brand_model}</p>
                         <div className="flex items-center gap-2 mt-0.5">
                           <Badge variant="secondary" className="text-xs capitalize">{v.vehicle_type}</Badge>
-                          <span className="text-sm text-muted-foreground font-mono">{v.registration_number}</span>
+                          <span className="text-sm text-muted-foreground font-mono">{formatRegistration(v.registration_number)}</span>
                         </div>
                       </div>
                     </div>
