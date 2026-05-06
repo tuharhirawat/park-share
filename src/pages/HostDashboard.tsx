@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Loader2, MapPin, Star, IndianRupee, Clock, Car, BarChart3, Plus, Trash2, ImagePlus, X } from "lucide-react";
 import { format, parseISO, subMonths } from "date-fns";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, } from "@/components/ui/chart";
@@ -14,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useRef } from "react";
+import MapWithSearch from "@/components/MapWithSearch";
 import ReviewMetricsPanel from "@/components/host/ReviewMetricsPanel";
 
 interface Space {
@@ -22,11 +24,15 @@ interface Space {
   address: string;
   city: string;
   price_per_hour: number;
+  price_per_day?: number | null;
+  vehicle_types?: string[];
+  features?: string[];
+  description?: string | null;
+  lat?: number;
+  lng?: number;
   available: boolean;
   rating: number;
   review_count: number;
-  car_slots: number;
-  bike_slots: number;
   image_urls: string[];
 }
 
@@ -97,11 +103,15 @@ const HostDashboard = () => {
   const [newSlotLabel, setNewSlotLabel] = useState("");
   const [newSlotType, setNewSlotType] = useState<string>("car");
   const [addingSlot, setAddingSlot] = useState(false);
+  const [editingSpace, setEditingSpace] = useState<Space | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // Image management
   const [imageSpaceId, setImageSpaceId] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [pendingLocation, setPendingLocation] = useState<any>(null);
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/login");
@@ -113,7 +123,7 @@ const HostDashboard = () => {
 
     const { data: spacesData } = await supabase
       .from("parking_spaces")
-      .select("id, title, address, city, price_per_hour, available, rating, review_count, car_slots, bike_slots, image_urls")
+      .select("id, title, address, city, price_per_hour, price_per_day, vehicle_types, features,  description, lat, lng, available, rating, review_count, image_urls")
       .eq("user_id", user.id);
 
     const hostSpaces = (spacesData || []) as Space[];
@@ -159,21 +169,46 @@ const HostDashboard = () => {
 
   // Slot management handlers
   const handleAddSlot = async () => {
-    if (!managingSpaceId || !newSlotLabel.trim()) { toast.error("Enter a slot label"); return; }
+    if (!managingSpaceId) return;
+
     setAddingSlot(true);
-    const { error } = await supabase.from("parking_slots").insert({
-      space_id: managingSpaceId,
-      label: newSlotLabel.trim().toUpperCase(),
-      vehicle_type: newSlotType,
-    });
-    setAddingSlot(false);
-    if (error) {
-      if (error.code === "23505") toast.error("Slot label already exists");
-      else toast.error(error.message);
-    } else {
-      toast.success("Slot added!");
-      setNewSlotLabel("");
+
+    try {
+
+      const existing = slots.filter(
+        s =>
+          s.space_id === managingSpaceId &&
+          s.vehicle_type === newSlotType
+      );
+
+      const numbers = existing.map(s => {
+        const parts = s.label.split("-");
+        return parseInt(parts[1]) || 0;
+      });
+
+      const nextNumber =
+        numbers.length > 0 ? Math.max(...numbers) + 1 : 1;
+
+      const prefix = newSlotType === "car" ? "C" : "B";
+      const newLabel = `${prefix}-${nextNumber}`;
+
+      const { error } = await supabase
+        .from("parking_slots")
+        .insert({
+          space_id: managingSpaceId,
+          label: newLabel,
+          vehicle_type: newSlotType,
+        });
+
+      if (error) throw error;
+
+      toast.success(`Slot ${newLabel} added`);
       fetchAll();
+
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setAddingSlot(false);
     }
   };
 
@@ -328,6 +363,32 @@ const HostDashboard = () => {
     bookings: { label: "Bookings", color: "hsl(var(--primary))" },
   };
 
+  const slotCountsBySpace = useMemo(() => {
+    const map: Record<string, { car: number; bike: number }> = {};
+
+    slots.forEach(s => {
+      if (!s.is_active) return;
+
+      if (!map[s.space_id]) {
+        map[s.space_id] = { car: 0, bike: 0 };
+      }
+
+      if (s.vehicle_type === "car") map[s.space_id].car++;
+      if (s.vehicle_type === "bike") map[s.space_id].bike++;
+    });
+
+    return map;
+  }, [slots]);
+
+  const derivedVehicleTypes = (spaceId: string) => {
+    const counts = slotCountsBySpace[spaceId] || { car: 0, bike: 0 };
+
+    return [
+      ...(counts.car > 0 ? ["car"] : []),
+      ...(counts.bike > 0 ? ["bike"] : [])
+    ];
+  };
+
   if (authLoading || loading) {
     return (
       <div className="pt-24 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
@@ -390,49 +451,96 @@ const HostDashboard = () => {
             {/* Listings with slot/image management */}
             <TabsContent value="listings">
               <div className="space-y-4">
-                {liveStatus.map(s => (
-                  <div key={s.id} className="bg-card rounded-2xl p-6 card-shadow space-y-4">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <h3 className="font-bold text-foreground">{s.title}</h3>
-                        <p className="text-sm text-muted-foreground flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {s.address}, {s.city}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Capacity: {s.car_slots} car slots · {s.bike_slots} bike slots · {s.totalBookings} bookings
-                          {s.review_count > 0 && ` · ${s.rating} ★ (${s.review_count} reviews)`}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant="outline" className={s.activeCount > 0 ? "bg-green-500/10 text-green-600 border-green-500/20" : s.available ? "bg-blue-500/10 text-blue-600 border-blue-500/20" : "bg-red-500/10 text-red-600 border-red-500/20"}>
-                          {s.activeCount > 0 ? `${s.activeCount} In Use` : s.available ? "Available" : "Unavailable"}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">₹{s.price_per_hour}/hr</span>
-                      </div>
-                    </div>
+                {liveStatus.map(s => {
+                  const counts = slotCountsBySpace[s.id] || { car: 0, bike: 0 };
 
-                    {/* Images preview */}
-                    {s.image_urls && s.image_urls.length > 0 && (
-                      <div className="flex gap-2 overflow-x-auto pb-1">
-                        {s.image_urls.map((url, i) => (
-                          <div key={i} className="relative flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden group">
-                            <img src={url} alt="" className="w-full h-full object-cover" />
-                            <button onClick={() => handleRemoveImage(s.id, i)} className="absolute top-0.5 right-0.5 bg-destructive text-destructive-foreground rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ))}
+                  return (<>
+                    <div key={s.id} className="relative bg-card rounded-2xl p-6 card-shadow space-y-4">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <h3 className="font-bold text-foreground">{s.title}</h3>
+                          <p className="text-sm text-muted-foreground flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {s.address}, {s.city}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Capacity: {counts.car} car slots · {counts.bike} bike slots · {s.totalBookings} bookings
+                            {s.review_count > 0 && ` · ${s.rating} ★ (${s.review_count} reviews)`}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline" className={s.activeCount > 0 ? "bg-green-500/10 text-green-600 border-green-500/20" : s.available ? "bg-blue-500/10 text-blue-600 border-blue-500/20" : "bg-red-500/10 text-red-600 border-red-500/20"}>
+                            {s.activeCount > 0 ? `${s.activeCount} In Use` : s.available ? "In use" : "Not in use"}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">₹{s.price_per_hour}/hr</span>
+                        </div>
                       </div>
-                    )}
 
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" className="gap-1" onClick={() => setManagingSpaceId(s.id)}>
-                        <Plus className="w-3.5 h-3.5" /> Manage Slots
-                      </Button>
-                      <Button variant="outline" size="sm" className="gap-1" onClick={() => { setImageSpaceId(s.id); imageInputRef.current?.click(); }}>
-                        <ImagePlus className="w-3.5 h-3.5" /> {uploadingImage ? "Uploading..." : "Add Images"}
-                      </Button>
+                      {/* Images preview */}
+                      {s.image_urls && s.image_urls.length > 0 && (
+                        <div className="flex gap-2 overflow-x-auto pb-1">
+                          {s.image_urls.map((url, i) => (
+                            <div key={i} className="relative flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden group">
+                              <img src={url} alt="" className="w-full h-full object-cover" />
+                              <button onClick={() => handleRemoveImage(s.id, i)} className="absolute top-0.5 right-0.5 bg-destructive text-destructive-foreground rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" className="gap-1" onClick={() => setManagingSpaceId(s.id)}>
+                          <Plus className="w-3.5 h-3.5" /> Manage Slots
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setEditingSpace(s)}
+                        >
+                          Edit Details
+                        </Button>
+                        <Button variant="outline" size="sm" className="gap-1" onClick={() => { setImageSpaceId(s.id); imageInputRef.current?.click(); }}>
+                          <ImagePlus className="w-3.5 h-3.5" /> {uploadingImage ? "Uploading..." : "Add Images"}
+                        </Button>
+                      </div>
+                    
+                    <div className="absolute bottom-4 right-4 flex items-center gap-2 md:bottom-4 md:right-4">
+                      <span className="text-xs text-muted-foreground">
+                        {s.available ? "Available" : "Disabled"}
+                      </span>
+
+                      <Switch
+                        checked={s.available}
+                        onCheckedChange={async (value) => {
+                          setSpaces((prev) =>
+                            prev.map((sp) =>
+                              sp.id === s.id ? { ...sp, available: value } : sp
+                            )
+                          );
+
+                          const { error } = await supabase
+                            .from("parking_spaces")
+                            .update({ available: value })
+                            .eq("id", s.id);
+
+                          if (error) {
+                            toast.error("Failed to update availability");
+
+                            setSpaces((prev) =>
+                              prev.map((sp) =>
+                                sp.id === s.id ? { ...sp, available: !value } : sp
+                              )
+                            );
+                          } else {
+                            toast.success(
+                              value ? "Space enabled" : "Space disabled"
+                            );
+                          }
+                        }}
+                      />
                     </div>
-                  </div>
-                ))}
+                    </div>
+                  </>)
+                })}
               </div>
               <input ref={imageInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} />
             </TabsContent>
@@ -501,29 +609,31 @@ const HostDashboard = () => {
               />
             </TabsContent>
 
-
             {/* Live Status */}
             <TabsContent value="live">
               <div className="space-y-4">
-                {liveStatus.map(s => (
-                  <div key={s.id} className={`bg-card rounded-2xl p-6 card-shadow ${s.activeCount > 0 ? "ring-2 ring-green-500/30" : ""}`}>
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div>
-                        <h3 className="font-bold text-foreground">{s.title}</h3>
-                        <p className="text-sm text-muted-foreground">{s.address}, {s.city}</p>
-                        <p className="text-xs text-muted-foreground mt-1">Capacity: {s.car_slots} cars · {s.bike_slots} bikes</p>
-                      </div>
-                      <div className="flex gap-3 flex-wrap">
-                        <Badge variant="outline" className={s.activeCount > 0 ? "bg-green-500/10 text-green-600 border-green-500/20" : "bg-muted text-muted-foreground"}>
-                          {s.activeCount > 0 ? `${s.activeCount} Currently Occupied` : "No Active Users"}
-                        </Badge>
-                        {s.upcomingCount > 0 && (
-                          <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">{s.upcomingCount} Upcoming Today</Badge>
-                        )}
+                {liveStatus.map(s => {
+                  const counts = slotCountsBySpace[s.id] || { car: 0, bike: 0 };
+                  return (
+                    <div key={s.id} className={`bg-card rounded-2xl p-6 card-shadow ${s.activeCount > 0 ? "ring-2 ring-green-500/30" : ""}`}>
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                          <h3 className="font-bold text-foreground">{s.title}</h3>
+                          <p className="text-sm text-muted-foreground">{s.address}, {s.city}</p>
+                          <p className="text-xs text-muted-foreground mt-1">Capacity: {counts.car} cars · {counts.bike} bikes</p>
+                        </div>
+                        <div className="flex gap-3 flex-wrap">
+                          <Badge variant="outline" className={s.activeCount > 0 ? "bg-green-500/10 text-green-600 border-green-500/20" : "bg-muted text-muted-foreground"}>
+                            {s.activeCount > 0 ? `${s.activeCount} Currently Occupied` : "No Active Users"}
+                          </Badge>
+                          {s.upcomingCount > 0 && (
+                            <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">{s.upcomingCount} Upcoming Today</Badge>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </TabsContent>
           </Tabs>
@@ -562,10 +672,6 @@ const HostDashboard = () => {
 
             {/* Add new slot */}
             <div className="flex gap-2 items-end">
-              <div className="flex-1">
-                <label className="text-sm font-medium block mb-1">Label</label>
-                <Input placeholder="e.g., C-6, B-3" value={newSlotLabel} onChange={e => setNewSlotLabel(e.target.value)} />
-              </div>
               <div className="w-28">
                 <label className="text-sm font-medium block mb-1">Type</label>
                 <Select value={newSlotType} onValueChange={setNewSlotType}>
@@ -581,6 +687,173 @@ const HostDashboard = () => {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingSpace} onOpenChange={() => setEditingSpace(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Space</DialogTitle>
+          </DialogHeader>
+
+          {editingSpace && (
+            <div className="space-y-4">
+              <Input
+                value={editingSpace.title}
+                onChange={(e) =>
+                  setEditingSpace({ ...editingSpace, title: e.target.value })
+                }
+                placeholder="Title"
+              />
+
+              <Input
+                value={editingSpace.address}
+                readOnly
+                onClick={() => {
+                  setPendingLocation(
+                    editingSpace.lat && editingSpace.lng
+                      ? {
+                        lat: editingSpace.lat,
+                        lng: editingSpace.lng,
+                        address: editingSpace.address,
+                      }
+                      : null
+                  );
+                  setMapOpen(true);
+                }}
+              />
+
+              <Input
+                value={editingSpace.city}
+                onChange={(e) =>
+                  setEditingSpace({ ...editingSpace, city: e.target.value })
+                }
+                placeholder="City"
+              />
+
+              <Input
+                type="number"
+                value={editingSpace.price_per_hour}
+                onChange={(e) =>
+                  setEditingSpace({
+                    ...editingSpace,
+                    price_per_hour: Number(e.target.value),
+                  })
+                }
+                placeholder="Price per hour"
+              />
+
+              <Input
+                type="number"
+                value={editingSpace.price_per_day || ""}
+                onChange={(e) =>
+                  setEditingSpace({
+                    ...editingSpace,
+                    price_per_day: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+                placeholder="Price per day"
+              />
+
+              <Input
+                value={editingSpace.description || ""}
+                onChange={(e) =>
+                  setEditingSpace({
+                    ...editingSpace,
+                    description: e.target.value,
+                  })
+                }
+                placeholder="Description"
+              />
+
+              <div className="flex flex-wrap gap-2">
+                {["CCTV", "Guard", "Covered", "Gated", "EV Charging", "Well-Lit", "24/7 Access"].map(f => (
+                  <Button
+                    key={f}
+                    size="sm"
+                    variant={editingSpace.features?.includes(f) ? "default" : "outline"}
+                    onClick={() => {
+                      const updated = editingSpace.features?.includes(f)
+                        ? editingSpace.features.filter(i => i !== f)
+                        : [...(editingSpace.features || []), f];
+
+                      setEditingSpace({ ...editingSpace, features: updated });
+                    }}
+                  >
+                    {f}
+                  </Button>
+                ))}
+              </div>
+
+              <Button
+                className="w-full"
+                disabled={savingEdit}
+                onClick={async () => {
+                  if (!editingSpace) return;
+
+                  setSavingEdit(true);
+
+                  const { error } = await supabase
+                    .from("parking_spaces")
+                    .update({
+                      title: editingSpace.title,
+                      address: editingSpace.address,
+                      city: editingSpace.city,
+                      price_per_hour: editingSpace.price_per_hour,
+                      price_per_day: editingSpace.price_per_day ?? null,
+                      features: editingSpace.features ?? [],
+                      description: editingSpace.description ?? null,
+                      lat: editingSpace.lat,
+                      lng: editingSpace.lng,
+                      available: editingSpace.available,
+                    })
+                    .eq("id", editingSpace.id);
+
+                  setSavingEdit(false);
+
+                  if (error) {
+                    toast.error("Update failed");
+                  } else {
+                    toast.success("Updated successfully");
+                    setEditingSpace(null);
+                    fetchAll(); // refresh
+                  }
+                }}
+              >
+                {savingEdit ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={mapOpen} onOpenChange={setMapOpen}>
+        <DialogContent className="max-w-2xl h-[80vh] flex flex-col">
+          <DialogTitle>Select Location</DialogTitle>
+
+          <div className="flex-1 w-full h-[60vh]">
+            <MapWithSearch
+              onSelect={(loc: any) => setPendingLocation(loc)}
+              initialLocation={pendingLocation}
+            />
+          </div>
+
+          <Button
+            onClick={() => {
+              if (!pendingLocation || !editingSpace) return;
+
+              setEditingSpace({
+                ...editingSpace,
+                address: pendingLocation.address,
+                lat: pendingLocation.lat,
+                lng: pendingLocation.lng,
+              });
+
+              setMapOpen(false);
+            }}
+          >
+            Confirm Location
+          </Button>
         </DialogContent>
       </Dialog>
 

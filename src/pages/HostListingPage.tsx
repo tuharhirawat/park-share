@@ -58,7 +58,6 @@ const HostListingPage = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mapRef = useRef<MapWithSearchHandle | null>(null);
-  const [vehicles, setVehicles] = useState<string[]>([]);
   const [features, setFeatures] = useState<string[]>([]);
   const [images, setImages] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
@@ -178,16 +177,21 @@ const HostListingPage = () => {
       setSubmitting(false);
       return;
     }
-    if (vehicles.length === 0) {
-      toast.error("Please select at least one vehicle type");
-      return;
-    }
     setSubmitting(true);
     try {
       const imageUrls = await uploadImages();
       const carSlots = parseInt(values.carSlots);
       const bikeSlots = parseInt(values.bikeSlots);
-
+      const vehicle_types = [
+        ...(carSlots > 0 ? ["car"] : []),
+        ...(bikeSlots > 0 ? ["bike"] : [])
+      ];
+      
+      if (carSlots === 0 && bikeSlots === 0) {
+        toast.error("At least 1 slot is required");
+        return;
+      }
+      
       const { data: spaceData, error } = await supabase.from("parking_spaces").insert({
         user_id: user.id,
         title: values.title,
@@ -195,12 +199,10 @@ const HostListingPage = () => {
         city: values.city,
         price_per_hour: parseFloat(values.pricePerHour),
         price_per_day: values.pricePerDay ? parseFloat(values.pricePerDay) : null,
-        vehicle_types: vehicles,
+        vehicle_types,
         features,
         description: values.description || null,
         image_urls: imageUrls,
-        car_slots: carSlots,
-        bike_slots: bikeSlots,
         lat: location.lat,
         lng: location.lng,
       }).select("id").single();
@@ -209,12 +211,12 @@ const HostListingPage = () => {
 
       // Auto-generate labeled parking slots
       const slotInserts: { space_id: string; label: string; vehicle_type: string }[] = [];
-      if (vehicles.includes("car") && carSlots > 0) {
+      if (carSlots > 0) {
         generateSlotLabels(carSlots, "C").forEach(label => {
           slotInserts.push({ space_id: spaceData.id, label, vehicle_type: "car" });
         });
       }
-      if (vehicles.includes("bike") && bikeSlots > 0) {
+      if (bikeSlots > 0) {
         generateSlotLabels(bikeSlots, "B").forEach(label => {
           slotInserts.push({ space_id: spaceData.id, label, vehicle_type: "bike" });
         });
@@ -360,20 +362,6 @@ const HostListingPage = () => {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2"><Car className="w-4 h-4 text-primary" /> Vehicle Types Supported</label>
-                <div className="flex gap-3">
-                  {vehicleOptions.map(v => (
-                    <button key={v.id} type="button"
-                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${vehicles.includes(v.id) ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-muted-foreground border-border hover:border-primary/50"}`}
-                      onClick={() => toggleItem(vehicles, setVehicles, v.id)}
-                    >
-                      <v.icon className="w-4 h-4" /> {v.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-2">
                 <label className="text-sm font-medium flex items-center gap-2"><Shield className="w-4 h-4 text-primary" /> Features & Amenities</label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {featureOptions.map(f => (
@@ -404,11 +392,11 @@ const HostListingPage = () => {
       </div>
       <Dialog open={mapOpen} onOpenChange={(open) => { if (!open) closeMapModal(); setMapOpen(open); }}>
         <DialogContent className="flex h-[90vh] min-h-[70vh] w-[min(86vw,72rem)] max-w-[86vw] max-h-[94vh] flex-col rounded-[32px] border border-white/10 bg-slate-950/95 shadow-[0_35px_70px_-30px_rgba(15,23,42,0.9)] backdrop-blur-xl overflow-hidden">
-          
+
           <DialogTitle className="text-white text-lg font-semibold">
             Select Location
           </DialogTitle>
-          
+
           <div className="flex-1 min-h-0 overflow-hidden px-4 sm:px-6">
             <div className="relative h-full min-h-[42rem] overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/80 shadow-inner shadow-slate-950/40">
               <MapWithSearch

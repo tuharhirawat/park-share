@@ -784,6 +784,7 @@ const MyBookingsPage = () => {
     // Check availability
     const { data: capacityCheck } = await supabase.rpc("check_parking_capacity", {
       p_space_id: booking.space_id,
+      p_slot_id: booking.slot_id,
       p_vehicle_type: booking.vehicle_type,
       p_booking_date: booking.booking_date!,
       p_start_time: formatTimeForDB(booking.end_time!),
@@ -850,6 +851,11 @@ const MyBookingsPage = () => {
       return;
     }
 
+    if (rescheduleMinutes <= 0) {
+      toast.error("Invalid duration");
+      return;
+    }
+
     // BLOCK past date/time (FINAL GUARD)
     if (rescheduleDate && rescheduleStartTime) {
       const now = new Date();
@@ -907,6 +913,7 @@ const MyBookingsPage = () => {
     // Check capacity
     const { data: capacityCheck } = await supabase.rpc("check_parking_capacity", {
       p_space_id: booking.space_id,
+      p_slot_id: booking.slot_id,
       p_vehicle_type: booking.vehicle_type,
       p_booking_date: format(rescheduleDate, "yyyy-MM-dd"),
       p_start_time: formatTimeForDB(rescheduleStartTime),
@@ -1155,7 +1162,7 @@ const MyBookingsPage = () => {
       console.error(error);
     } else {
       toast.success(`Booking ${rescheduleConfirmation.type === "extend" ? "extended" : "rescheduled"} successfully!`);
-      
+
       setReschedulingId(null);
       setRescheduleConfirmation(null);
       setRescheduleDate(undefined);
