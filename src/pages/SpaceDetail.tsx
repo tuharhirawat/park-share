@@ -16,6 +16,7 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useParkingSpaces } from "@/hooks/useParkingSpaces";
 import ApproximateLocationMap from "@/components/ApproximateLocationMap";
+import { getLatestDisplayValue } from "@/lib/spaceUpdates";
 import ReviewsList from "@/components/ReviewsList";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select";
 import { getCurrentTime, isToday, isPastTime } from "@/lib/time";
@@ -77,11 +78,44 @@ const SpaceDetail = () => {
   const [availableVehicles, setAvailableVehicles] = useState<UserVehicle[]>([]);
   const [availableSlots, setAvailableSlots] = useState<ParkingSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [latestTitleUpdate, setLatestTitleUpdate] = useState<any>(null);
 
   const filteredVehicleSlots =
     slots.filter(
       s => s.vehicle_type === selectedVehicle
     );
+
+  useEffect(() => {
+
+    if (!space?.id && !space?._dbId) return;
+
+    const fetchLatestTitle = async () => {
+
+      const { data } = await supabase
+        .from("parking_space_update_requests")
+        .select(`
+          old_value,
+          new_value,
+          created_at
+        `)
+        .eq(
+          "space_id",
+          (space._dbId || space.id).replace("db_", "")
+        )
+        .eq("field", "title")
+        .in("status", ["APPROVED", "PENDING"])
+        .order("created_at", {
+          ascending: false
+        })
+        .limit(1)
+        .maybeSingle();
+
+      setLatestTitleUpdate(data || null);
+    };
+
+    fetchLatestTitle();
+
+  }, [space?.id, space?._dbId]);
 
   // Fetch user vehicles
   useEffect(() => {
@@ -554,7 +588,18 @@ const SpaceDetail = () => {
                 image={space.image}
               />
               <div>
-                <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground mb-2">{space.title}</h1>
+                <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground mb-2">
+                  {
+                    getLatestDisplayValue({
+                      currentValue:
+                        latestTitleUpdate?.new_value,
+
+                      previousValue:
+                        latestTitleUpdate?.old_value
+                        || space.title
+                    })
+                  }
+                </h1>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
                   <span className="flex items-center gap-1"><MapPin className="w-4 h-4" />Approximate location in {space.city}</span>
                   <span className="flex items-center gap-1"><Star className="w-4 h-4 text-accent fill-accent" /> {space.rating} ({space.reviewCount} reviews)</span>

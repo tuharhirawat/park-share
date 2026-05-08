@@ -20,6 +20,10 @@ export interface ParkingSpace {
   lng: number;
   available: boolean;
   _dbId?: string;
+  latestTitleUpdate?: {
+    old_value: string;
+    new_value: string;
+  };
 }
 
 export interface DbParkingSpace {
@@ -77,7 +81,47 @@ export const useParkingSpaces = () => {
       }
 
       const dbSpaces = (data as unknown as DbParkingSpace[]).map(mapDbToSpace);
-      return dbSpaces;
+      const spaceIds = dbSpaces.map(space => space._dbId);
+
+      const { data: titleUpdates } = await supabase
+        .from("parking_space_update_requests")
+        .select(`
+          space_id,
+          old_value,
+          new_value,
+          created_at
+        `)
+        .eq("field", "title")
+        .in("status", ["APPROVED", "PENDING"])
+        .in("space_id", spaceIds)
+        .order("created_at", { ascending: false });
+
+      const latestTitleMap: Record<string, any> = {};
+
+      titleUpdates?.forEach(update => {
+
+        if (!latestTitleMap[update.space_id]) {
+          latestTitleMap[update.space_id] = update;
+        }
+
+      });
+
+      const enrichedSpaces = dbSpaces.map(space => ({
+        ...space,
+
+        latestTitleUpdate:
+          latestTitleMap[space._dbId || ""]
+            ? {
+              old_value:
+                latestTitleMap[space._dbId || ""].old_value,
+
+              new_value:
+                latestTitleMap[space._dbId || ""].new_value,
+            }
+            : undefined,
+      }));
+
+      return enrichedSpaces;
     },
   });
 };

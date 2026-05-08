@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { getLatestDisplayValue } from "@/lib/spaceUpdates";
 import { RefreshCw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
@@ -553,6 +554,9 @@ const MyBookingsPage = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [latestTitleUpdates, setLatestTitleUpdates] = useState<
+    Record<string, any>
+  >({});
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState<string | null>(null);
@@ -652,15 +656,8 @@ const MyBookingsPage = () => {
 
   const handleRescheduleTimeChange = (value: string) => {
 
-    if (
-      !validatePastTime(
-        value,
-        rescheduleDate
-      )
-    ) {
-      toast.error(
-        "Past time not allowed"
-      );
+    if (!validatePastTime(value, rescheduleDate)) {
+      toast.error("Past time not allowed");
       return;
     }
 
@@ -722,7 +719,42 @@ const MyBookingsPage = () => {
         space_lat: b.parking_spaces?.lat,
         space_lng: b.parking_spaces?.lng
       }));
-      setBookings(enrichedBookings);
+      const bookingsData = enrichedBookings || [];
+
+      setBookings(bookingsData);
+
+      const spaceIds = bookingsData.map(
+        (b: any) => b.space_id
+      );
+
+      if (!spaceIds.length) return;
+
+      const { data: titleUpdates } = await supabase
+        .from("parking_space_update_requests")
+        .select(`
+          space_id,
+          old_value,
+          new_value,
+          created_at
+        `)
+        .eq("field", "title")
+        .in("status", ["APPROVED", "PENDING"])
+        .in("space_id", spaceIds)
+        .order("created_at", {
+          ascending: false
+        });
+
+      const latestMap: Record<string, any> = {};
+
+      titleUpdates?.forEach((update) => {
+
+        if (!latestMap[update.space_id]) {
+          latestMap[update.space_id] = update;
+        }
+
+      });
+
+      setLatestTitleUpdates(latestMap);
     }
     setLoading(false);
   }, [user]);
@@ -1300,7 +1332,22 @@ const MyBookingsPage = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-2 flex-1">
             <div className="flex items-center gap-3 flex-wrap">
-              <h3 className="font-display font-bold text-foreground text-lg">{booking.space_title}</h3>
+              <h3 className="font-display font-bold text-foreground text-lg">
+                {
+                  getLatestDisplayValue({
+                    currentValue:
+                      latestTitleUpdates[
+                        booking.space_id
+                      ]?.new_value ||
+                      booking.space_title,
+
+                    previousValue:
+                      latestTitleUpdates[
+                        booking.space_id
+                      ]?.old_value
+                  })
+                }
+              </h3>
               <Badge variant="outline" className={cfg.color}>{cfg.label}</Badge>
               {booking.vehicle_type && <Badge variant="secondary" className="capitalize text-xs">{booking.vehicle_type}</Badge>}
               {canExtendBooking(booking) && !cancelledBooking && (booking.has_used_free_extension ? (
