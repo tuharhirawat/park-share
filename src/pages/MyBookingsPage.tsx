@@ -1544,7 +1544,7 @@ const MyBookingsPage = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="pt-20 pb-16">
+      <div>
         <div className="container mx-auto px-4">
           <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground mb-8">My Bookings</h1>
 

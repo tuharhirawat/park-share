@@ -8,7 +8,7 @@ const HeroSection = () => {
   const navigate = useNavigate();
 
   return (
-    <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden pt-10 mt-10">
+    <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden pt-8 -mt-6">
       <div className="absolute inset-0">
         <img src={heroBg} alt="Aerial city parking" className="w-full h-full object-cover" width={1920} height={1080} />
         <div className="absolute inset-0 bg-foreground/60" />

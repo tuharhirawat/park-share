@@ -162,7 +162,7 @@ const ProfilePage = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="pt-20 pb-16">
+      <div>
         <div className="container mx-auto px-4 max-w-2xl space-y-6">
           <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground">My Profile</h1>
 

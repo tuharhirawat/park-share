@@ -134,97 +134,95 @@ const SignupPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="flex items-center justify-center pt-24 pb-12 px-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <div className="mx-auto w-12 h-12 rounded-xl hero-gradient flex items-center justify-center mb-4">
-              <Car className="w-6 h-6 text-primary-foreground" />
-            </div>
-            <CardTitle className="font-display text-2xl">Create Account</CardTitle>
-            <CardDescription>Join Park Mitra and start parking smarter</CardDescription>
-          </CardHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)}>
-              <CardContent className="space-y-4">
-                <FormField control={form.control} name="name" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Full Name</FormLabel>
-                    <FormControl><Input placeholder="John Doe" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="email" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl><Input type="email" placeholder="you@example.com" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="mobile" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Mobile Number</FormLabel>
-                    <FormControl><Input type="tel" placeholder="+91 9876543210" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="password" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Input type={showPassword ? "text" : "password"} placeholder="••••••••" {...field} />
-                        <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setShowPassword(!showPassword)}>
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="confirmPassword" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Confirm Password</FormLabel>
-                    <FormControl><Input type={showPassword ? "text" : "password"} placeholder="••••••••" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="acceptTerms" render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                    <FormControl>
-                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel className="text-sm font-normal">
-                        I accept the{" "}
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <button type="button" className="text-primary hover:underline font-medium">Terms & Conditions, Privacy Policy</button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-lg max-h-[80vh]">
-                            <DialogHeader><DialogTitle>Terms, Privacy & User Agreement</DialogTitle></DialogHeader>
-                            <ScrollArea className="max-h-[60vh] pr-4"><TermsContent /></ScrollArea>
-                          </DialogContent>
-                        </Dialog>
-                      </FormLabel>
-                      <FormMessage />
+    <div className="min-h-screen bg-background flex items-center justify-center px-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <div className="mx-auto w-12 h-12 rounded-xl hero-gradient flex items-center justify-center mb-4">
+            <Car className="w-6 h-6 text-primary-foreground" />
+          </div>
+          <CardTitle className="font-display text-2xl">Create Account</CardTitle>
+          <CardDescription>Join Park Mitra and start parking smarter</CardDescription>
+        </CardHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <CardContent className="space-y-4">
+              <FormField control={form.control} name="name" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Full Name</FormLabel>
+                  <FormControl><Input placeholder="John Doe" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="email" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl><Input type="email" placeholder="you@example.com" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="mobile" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Mobile Number</FormLabel>
+                  <FormControl><Input type="tel" placeholder="+91 9876543210" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="password" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Password</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input type={showPassword ? "text" : "password"} placeholder="••••••••" {...field} />
+                      <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setShowPassword(!showPassword)}>
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
                     </div>
-                  </FormItem>
-                )} />
-              </CardContent>
-              <CardFooter className="flex flex-col gap-4">
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? "Creating account..." : "Sign Up"}
-                </Button>
-                <p className="text-sm text-muted-foreground text-center">
-                  Already have an account?{" "}
-                  <Link to="/login" className="text-primary hover:underline font-medium">Log In</Link>
-                </p>
-              </CardFooter>
-            </form>
-          </Form>
-        </Card>
-      </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="confirmPassword" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Confirm Password</FormLabel>
+                  <FormControl><Input type={showPassword ? "text" : "password"} placeholder="••••••••" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="acceptTerms" render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                  <FormControl>
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                  <div className="space-y-1 leading-none">
+                    <FormLabel className="text-sm font-normal">
+                      I accept the{" "}
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <button type="button" className="text-primary hover:underline font-medium">Terms & Conditions, Privacy Policy</button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-lg max-h-[80vh]">
+                          <DialogHeader><DialogTitle>Terms, Privacy & User Agreement</DialogTitle></DialogHeader>
+                          <ScrollArea className="max-h-[60vh] pr-4"><TermsContent /></ScrollArea>
+                        </DialogContent>
+                      </Dialog>
+                    </FormLabel>
+                    <FormMessage />
+                  </div>
+                </FormItem>
+              )} />
+            </CardContent>
+            <CardFooter className="flex flex-col gap-4">
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Creating account..." : "Sign Up"}
+              </Button>
+              <p className="text-sm text-muted-foreground text-center">
+                Already have an account?{" "}
+                <Link to="/login" className="text-primary hover:underline font-medium">Log In</Link>
+              </p>
+            </CardFooter>
+          </form>
+        </Form>
+      </Card>
     </div>
   );
 };

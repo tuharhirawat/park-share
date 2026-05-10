@@ -9,7 +9,7 @@ const steps = [
 ];
 
 const HowItWorks = () => (
-  <section className="py-24 bg-background">
+  <section className="py-20 bg-background">
     <div className="container mx-auto px-4">
       <div className="text-center mb-16">
         <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-4">How It Works</h2>

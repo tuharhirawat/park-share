@@ -573,7 +573,7 @@ const SpaceDetail = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="pt-20 pb-16">
+      <div>
         <div className="container mx-auto px-4">
           <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
             <ArrowLeft className="w-4 h-4" /> Back

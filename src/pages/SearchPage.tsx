@@ -44,7 +44,7 @@ const SearchPage = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="pt-20 pb-16">
+      <div>
         <div className="container mx-auto px-4">
           <div className="flex flex-col sm:flex-row gap-3 mb-8">
             <div className="flex-1 flex items-center gap-2 px-4 py-3 rounded-xl bg-muted border border-border">

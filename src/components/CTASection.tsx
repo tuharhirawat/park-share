@@ -6,7 +6,7 @@ const CTASection = () => {
   const navigate = useNavigate();
 
   return (
-    <section className="py-24 bg-background">
+    <section className="pt-16 pb-6 bg-background">
       <div className="container mx-auto px-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
