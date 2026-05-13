@@ -19,6 +19,10 @@ import ProfilePage from "./pages/ProfilePage.tsx";
 import VehiclesPage from "./pages/VehiclesPage.tsx";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import PublicRoute from "@/components/PublicRoute";
+import About from "@/pages/About.jsx";
+import Contact from "@/pages/Contact.jsx";
+import Terms from "@/pages/Terms.tsx";
+import Privacy from "@/pages/Privacy.jsx";
 
 const queryClient = new QueryClient();
 
@@ -98,6 +102,10 @@ const App = () => (
                     </PublicRoute>
                   }
                 />
+                <Route path="/about" element={<About />} />
+                <Route path="/contact" element={<Contact />} />
+                <Route path="/terms" element={<Terms />} />
+                <Route path="/privacy" element={<Privacy />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
