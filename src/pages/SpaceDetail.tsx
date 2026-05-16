@@ -20,6 +20,8 @@ import { getLatestDisplayValue } from "@/lib/spaceUpdates";
 import ReviewsList from "@/components/ReviewsList";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select";
 import { getCurrentTime, isToday, isPastTime } from "@/lib/time";
+import AuthRequiredModal from "@/components/AuthRequiredModal";
+import { useAuthGuard } from "@/hooks/useAuthGuard";
 
 declare global {
   interface Window {
@@ -53,6 +55,7 @@ const SpaceDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { authOpen, setAuthOpen, requireAuth, redirectPath } = useAuthGuard();
   const { data: allSpaces = [] } = useParkingSpaces();
   const space = allSpaces.find((s) => s.id === id);
 
@@ -315,8 +318,7 @@ const SpaceDetail = () => {
 
   const handleBookNow = async () => {
     if (!user) {
-      toast.info("Please log in to book a space");
-      navigate("/login");
+      requireAuth(() => { });
       return;
     }
     if (!space) return;
@@ -660,7 +662,18 @@ const SpaceDetail = () => {
                   ) : availableVehicles.length === 0 ? (
                     <div className="text-sm text-muted-foreground">
                       <p>No available vehicles for selected time.</p>
-                      <Button variant="link" className="p-0 h-auto text-primary" onClick={() => navigate("/vehicles")}>Add a vehicle →</Button>
+                      <Button
+                        variant="link"
+                        className="p-0 h-auto text-primary"
+                        onClick={() =>
+                          requireAuth(
+                            () => navigate("/vehicles"),
+                            "/vehicles"
+                          )
+                        }
+                      >
+                        Add a vehicle →
+                      </Button>
                     </div>
                   ) : (
                     <Select value={selectedVehicleId} onValueChange={(vid) => {
@@ -973,6 +986,14 @@ const SpaceDetail = () => {
 
             </DialogContent>
           </Dialog>
+
+          <AuthRequiredModal
+            open={authOpen}
+            onOpenChange={setAuthOpen}
+            redirectPath={redirectPath}
+            title="Sign in to continue"
+            description="Please sign in to add vehicles and complete your booking"
+          />
         </div>
       </div>
     </div>

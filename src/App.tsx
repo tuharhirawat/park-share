@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { AuthProvider } from "@/hooks/use-auth";
+import { hasEmailAuth, validateAuthConfig } from "./config/authConfig.ts";
 import MainLayout from "@/layouts/MainLayout.tsx";
 import Index from "./pages/Index.tsx";
 import SearchPage from "./pages/SearchPage.tsx";
@@ -25,6 +26,7 @@ import Terms from "@/pages/Terms.tsx";
 import Privacy from "@/pages/Privacy.jsx";
 
 const queryClient = new QueryClient();
+validateAuthConfig();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -38,13 +40,7 @@ const App = () => (
               <Route element={<MainLayout />}>
                 <Route path="/" element={<Index />} />
                 <Route path="/search" element={<SearchPage />} />
-                <Route
-                  path="/space/:id"
-                  element={
-                    <ProtectedRoute>
-                      <SpaceDetail />
-                    </ProtectedRoute>
-                  }
+                <Route path="/space/:id" element={ <SpaceDetail /> }
                 />
                 <Route
                   path="/host"
@@ -70,14 +66,16 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
-                <Route
-                  path="/profile"
-                  element={
-                    <ProtectedRoute>
-                      <ProfilePage />
-                    </ProtectedRoute>
-                  }
-                />
+                {hasEmailAuth() && (
+                  <Route
+                    path="/profile"
+                    element={
+                      <ProtectedRoute>
+                        <ProfilePage />
+                      </ProtectedRoute>
+                    }
+                  />
+                )}
                 <Route
                   path="/vehicles"
                   element={
@@ -86,22 +84,27 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
-                <Route
-                  path="/login"
-                  element={
-                    <PublicRoute>
-                      <LoginPage />
-                    </PublicRoute>
-                  }
-                />
-                <Route
-                  path="/signup"
-                  element={
-                    <PublicRoute>
-                      <SignupPage />
-                    </PublicRoute>
-                  }
-                />
+                {hasEmailAuth() && (
+                  <>
+                    <Route
+                      path="/login"
+                      element={
+                        <PublicRoute>
+                          <LoginPage />
+                        </PublicRoute>
+                      }
+                    />
+
+                    <Route
+                      path="/signup"
+                      element={
+                        <PublicRoute>
+                          <SignupPage />
+                        </PublicRoute>
+                      }
+                    />
+                  </>
+                )}
                 <Route path="/about" element={<About />} />
                 <Route path="/contact" element={<Contact />} />
                 <Route path="/terms" element={<Terms />} />

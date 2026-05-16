@@ -1,9 +1,12 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
+import AuthRequiredModal from "@/components/AuthRequiredModal";
+import { useAuthGuard } from "@/hooks/useAuthGuard";
 
 const CTASection = () => {
   const navigate = useNavigate();
+  const { authOpen, setAuthOpen, requireAuth, redirectPath } = useAuthGuard();
 
   return (
     <section className="pt-16 pb-6 bg-background">
@@ -25,7 +28,12 @@ const CTASection = () => {
               size="lg"
               variant="secondary"
               className="rounded-xl text-base px-8"
-              onClick={() => navigate("/host")}
+              onClick={() =>
+                requireAuth(
+                  () => navigate("/host"),  
+                  "/host"
+                )
+              }
             >
               List Your Space - It's Free
             </Button>
@@ -40,6 +48,14 @@ const CTASection = () => {
           </div>
         </motion.div>
       </div>
+
+      <AuthRequiredModal
+        open={authOpen}
+        onOpenChange={setAuthOpen}
+        redirectPath={redirectPath}
+        title="Become a host"
+        description="Sign in to list your parking space and start earning"
+      />
     </section>
   );
 };

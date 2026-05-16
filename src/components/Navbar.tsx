@@ -14,7 +14,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import AuthButtons from "@/components/AuthButtons";
 import HostOnboardingModal from "@/components/HostOnboardingModal";
+import { getLoginRoute, hasEmailAuth } from "@/config/authConfig";
 import { cn } from "@/lib/utils";
 
 const Navbar = () => {
@@ -45,15 +47,11 @@ const Navbar = () => {
 
   const handleHostAction = () => {
     if (!user) {
-      navigate("/login");
+      navigate(getLoginRoute());
       return;
     }
 
-    if (isHost) {
-      navigate("/host");
-    } else {
-      setHostModalOpen(true);
-    }
+    isHost ? navigate("/host") : setHostModalOpen(true);
   };
 
   const desktopNavClass = "text-sm font-medium text-muted-foreground hover:text-foreground transition-colors";
@@ -109,7 +107,9 @@ const Navbar = () => {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem onClick={() => navigate("/profile")}>My Profile</DropdownMenuItem>
+                    {hasEmailAuth() && (
+                      <DropdownMenuItem onClick={() => navigate("/profile")}>My Profile</DropdownMenuItem>
+                    )}
                     <DropdownMenuItem onClick={() => navigate("/vehicles")}>My Vehicles</DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={handleLogout} className="text-destructive">
@@ -118,17 +118,24 @@ const Navbar = () => {
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
-                <>
-                  <Link to="/login"><Button variant="outline" size="sm">Log In</Button></Link>
-                  <Link to="/signup"><Button size="sm">Sign Up</Button></Link>
-                </>
+                <AuthButtons />
               )
             )}
           </div>
 
-          <button className="md:hidden" onClick={() => setIsOpen(!isOpen)}>
-            {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-          </button>
+          <div className="flex items-center gap-2 md:hidden">
+
+            <ThemeToggle />
+
+            <button onClick={() => setIsOpen(!isOpen)}>
+              {isOpen ? (
+                <X className="w-6 h-6" />
+              ) : (
+                <Menu className="w-6 h-6" />
+              )}
+            </button>
+
+          </div>
         </div>
 
         {isOpen && (
@@ -152,16 +159,14 @@ const Navbar = () => {
                 >
                   List Your Space
                 </button>
-                {isHost && (
-                  <NavLink
-                    to="/host/dashboard"
-                    className={mobileNavClass}
-                    activeClassName={mobileActiveClass}
-                    onClick={() => setIsOpen(false)}
-                  >
-                    Host Dashboard
-                  </NavLink>
-                )}
+                <NavLink
+                  to="/host/dashboard"
+                  className={mobileNavClass}
+                  activeClassName={mobileActiveClass}
+                  onClick={() => setIsOpen(false)}
+                >
+                  Host Dashboard
+                </NavLink>
                 <NavLink
                   to="/my-bookings"
                   className={mobileNavClass}
@@ -170,14 +175,16 @@ const Navbar = () => {
                 >
                   My Bookings
                 </NavLink>
-                <NavLink
-                  to="/profile"
-                  className={mobileNavClass}
-                  activeClassName={mobileActiveClass}
-                  onClick={() => setIsOpen(false)}
-                >
+                {hasEmailAuth() && (
+                  <NavLink
+                    to="/profile"
+                    className={mobileNavClass}
+                    activeClassName={mobileActiveClass}
+                    onClick={() => setIsOpen(false)}
+                  >
                   My Profile
                 </NavLink>
+                )}
                 <NavLink
                   to="/vehicles"
                   className={mobileNavClass}
@@ -189,17 +196,15 @@ const Navbar = () => {
               </>
             )}
             <div className="flex gap-2 pt-2 items-center">
-              <ThemeToggle />
               {!loading && (
                 user ? (
                   <Button variant="outline" size="sm" className="flex-1" onClick={() => { setIsOpen(false); handleLogout(); }}>
                     <LogOut className="w-4 h-4 mr-1" /> Log Out
                   </Button>
                 ) : (
-                  <>
-                    <Link to="/login" className="flex-1" onClick={() => setIsOpen(false)}><Button variant="outline" size="sm" className="w-full">Log In</Button></Link>
-                    <Link to="/signup" className="flex-1" onClick={() => setIsOpen(false)}><Button size="sm" className="w-full">Sign Up</Button></Link>
-                  </>
+                  <div onClick={() => setIsOpen(false)}>
+                    <AuthButtons />
+                  </div>
                 )
               )}
             </div>

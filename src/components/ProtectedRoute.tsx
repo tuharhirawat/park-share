@@ -1,7 +1,9 @@
 import { useAuth } from "@/hooks/use-auth";
 import { Navigate, useLocation } from "react-router-dom";
+import { getLoginRoute } from "@/config/authConfig";
 
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
+
   const { user, loading } = useAuth();
   const location = useLocation();
 
@@ -10,7 +12,7 @@ const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
   if (!user) {
     return (
       <Navigate
-        to="/login"
+        to={getLoginRoute()}
         state={{ from: location }}
         replace
       />

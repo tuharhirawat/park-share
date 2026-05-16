@@ -697,37 +697,42 @@ const MyBookingsPage = () => {
   const fetchBookings = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
-      .from("bookings")
-      .select(`
-        *,
-        parking_spaces (
-          lat,
-          lng
-        )
-      `)
-      .eq("user_id", user.id)
-      .in("status", ["confirmed", "cancelled"])
-      .order("created_at", { ascending: false });
 
-    if (error) {
-      toast.error("Failed to load bookings");
-    } else {
-      // Flatten the joined data for the interface
+    try {
+      const { data, error } = await supabase
+        .from("bookings")
+        .select(`
+          *,
+          parking_spaces (
+            lat,
+            lng
+          )
+        `)
+        .eq("user_id", user.id)
+        .in("status", ["confirmed", "cancelled"])
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        toast.error("Failed to load bookings");
+        return;
+      }
+
       const enrichedBookings = (data || []).map((b: any) => ({
         ...b,
         space_lat: b.parking_spaces?.lat,
-        space_lng: b.parking_spaces?.lng
+        space_lng: b.parking_spaces?.lng,
       }));
-      const bookingsData = enrichedBookings || [];
 
-      setBookings(bookingsData);
+      setBookings(enrichedBookings);
 
-      const spaceIds = bookingsData.map(
+      const spaceIds = enrichedBookings.map(
         (b: any) => b.space_id
       );
 
-      if (!spaceIds.length) return;
+      if (!spaceIds.length) {
+        setLatestTitleUpdates({});
+        return;
+      }
 
       const { data: titleUpdates } = await supabase
         .from("parking_space_update_requests")
@@ -755,8 +760,12 @@ const MyBookingsPage = () => {
       });
 
       setLatestTitleUpdates(latestMap);
+
+    } catch (err) {
+      toast.error("Something went wrong");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [user]);
 
   const fetchReviews = useCallback(async () => {

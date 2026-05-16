@@ -15,6 +15,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Dialog, DialogContent, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import HostOnboardingModal from "@/components/HostOnboardingModal";
 import MapWithSearch, { type MapWithSearchHandle } from "@/components/MapWithSearch";
+import { getLoginRoute } from "@/config/authConfig";
 
 const vehicleOptions = [
   { id: "bike", label: "Bike", icon: Bike },
@@ -85,7 +86,7 @@ const HostListingPage = () => {
   useEffect(() => {
     if (!loading && !user) {
       toast.error("Please log in to list your space");
-      navigate("/login");
+      navigate(getLoginRoute());
       return;
     }
     if (user) {
@@ -95,9 +96,11 @@ const HostListingPage = () => {
         .eq("user_id", user.id)
         .maybeSingle()
         .then(({ data }) => {
-          if (data) {
-            setIsHost(data.is_host);
-            if (!data.is_host) setHostModalOpen(true);
+          const hostStatus = data?.is_host ?? false;
+          setIsHost(hostStatus);
+
+          if (!hostStatus) {
+            setHostModalOpen(true);
           }
         });
     }
@@ -178,6 +181,7 @@ const HostListingPage = () => {
       return;
     }
     setSubmitting(true);
+
     try {
       const imageUrls = await uploadImages();
       const carSlots = parseInt(values.carSlots);
@@ -186,12 +190,12 @@ const HostListingPage = () => {
         ...(carSlots > 0 ? ["car"] : []),
         ...(bikeSlots > 0 ? ["bike"] : [])
       ];
-      
+
       if (carSlots === 0 && bikeSlots === 0) {
         toast.error("At least 1 slot is required");
         return;
       }
-      
+
       const { data: spaceData, error } = await supabase.from("parking_spaces").insert({
         user_id: user.id,
         title: values.title,
