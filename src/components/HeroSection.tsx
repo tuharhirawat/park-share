@@ -3,18 +3,33 @@ import { Search, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import heroBg from "@/assets/hero-bg.jpg";
+import AnnouncementBanner from "@/components/AnnouncementBanner";
 
 const HeroSection = () => {
   const navigate = useNavigate();
 
   return (
-    <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden pt-8 -mt-6">
+    <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden -mt-6">
+
       <div className="absolute inset-0">
-        <img src={heroBg} alt="Aerial city parking" className="w-full h-full object-cover" width={1920} height={1080} />
+        <img
+          src={heroBg}
+          alt="Aerial city parking"
+          className="w-full h-full object-cover"
+          width={1920}
+          height={1080}
+        />
+
         <div className="absolute inset-0 bg-foreground/60" />
       </div>
 
-      <div className="relative z-10 container mx-auto px-4 text-center">
+      {/* floating banner */}
+      <div className="absolute top-4 md:top-6 left-1/2 -translate-x-1/2 z-20 w-full
+        px-4 flex justify-center">
+        <AnnouncementBanner />
+      </div>
+
+      <div className="relative z-10 container mx-auto px-4 text-center pt-[140px] sm:pt-[150px] md:pt-[165px] lg:pt-[150px] pb-8 sm:pb-12 md:pb-16">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -41,12 +56,14 @@ const HeroSection = () => {
           <div className="bg-background rounded-2xl p-2 card-shadow flex flex-col sm:flex-row gap-2">
             <div className="flex-1 flex items-center gap-2 px-4 py-3 rounded-xl bg-muted">
               <MapPin className="w-5 h-5 text-primary shrink-0" />
+
               <input
                 type="text"
                 placeholder="Where do you need parking?"
                 className="w-full bg-transparent text-foreground placeholder:text-muted-foreground outline-none text-sm"
               />
             </div>
+
             <Button
               size="lg"
               className="rounded-xl gap-2 px-8"
@@ -62,12 +79,13 @@ const HeroSection = () => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.6 }}
-          className="flex items-center justify-center gap-8 mt-10 text-primary-foreground/70 text-sm"
+          className="flex flex-wrap items-center justify-center gap-8 mt-10 text-primary-foreground/70 text-sm"
         >
           <span>✓ 10,000+ Spaces</span>
           <span>✓ 50+ Cities</span>
           <span>✓ Verified Hosts</span>
         </motion.div>
+
       </div>
     </section>
   );
