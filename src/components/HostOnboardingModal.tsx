@@ -28,18 +28,49 @@ const HostOnboardingModal = ({ open, onOpenChange }: Props) => {
 
   const handleBecomeHost = async () => {
     if (!user || !accepted) return;
+
     setLoading(true);
-    const { error } = await supabase
-      .from("profiles")
-      .update({ is_host: true })
-      .eq("user_id", user.id);
-    setLoading(false);
-    if (error) {
-      toast.error("Failed to activate host account");
-    } else {
+
+    try {
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select(
+          "mobile_number,is_phone_verified,host_joined_at"
+        )
+        .eq("user_id", user.id)
+        .single();
+
+      if (error) throw error;
+
+      if (!profile.mobile_number?.trim()) {
+        toast.error("Please add your mobile number before becoming a host");
+        return;
+      }
+
+      if (!profile.is_phone_verified) {
+        toast.error("Please verify your mobile number before becoming a host");
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          is_host: true,
+          host_joined_at:
+            profile.host_joined_at ??
+            new Date().toISOString(),
+        })
+        .eq("user_id", user.id);
+
+      if (updateError) throw updateError;
+
       toast.success("Welcome aboard! You're now a host 🎉");
       onOpenChange(false);
       navigate("/host");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to activate host account");
+    } finally {
+      setLoading(false);
     }
   };
 

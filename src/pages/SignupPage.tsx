@@ -149,7 +149,10 @@ const SignupPage = () => {
       email: normalizedEmail,
       password: values.password,
       options: {
-        data: { full_name: values.name },
+        data: { 
+          full_name: values.name,
+          mobile_number: values.mobile, 
+        },
         emailRedirectTo: window.location.origin,
       },
     });
