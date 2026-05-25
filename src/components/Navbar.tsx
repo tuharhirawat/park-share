@@ -51,7 +51,7 @@ const Navbar = () => {
       return;
     }
 
-    isHost ? navigate("/host") : setHostModalOpen(true);
+    isHost ? navigate("/host/host-listing") : setHostModalOpen(true);
   };
 
   const desktopNavClass = "text-sm font-medium text-muted-foreground hover:text-foreground transition-colors";
@@ -82,7 +82,7 @@ const Navbar = () => {
                   onClick={handleHostAction}
                   className={cn(
                     desktopNavClass,
-                    location.pathname === "/host" && desktopActiveClass,
+                    location.pathname === "/host/host-listing" && desktopActiveClass,
                   )}
                 >
                   List Your Space
@@ -154,7 +154,7 @@ const Navbar = () => {
                   onClick={() => { setIsOpen(false); handleHostAction(); }}
                   className={cn(
                     "block text-sm font-medium py-2 w-full text-left rounded-md",
-                    location.pathname === "/host" ? mobileActiveClass : "text-muted-foreground",
+                    location.pathname === "/host/host-listing" ? mobileActiveClass : "text-muted-foreground",
                   )}
                 >
                   List Your Space

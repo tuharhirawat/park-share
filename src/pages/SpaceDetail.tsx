@@ -56,7 +56,7 @@ const SpaceDetail = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { authOpen, setAuthOpen, requireAuth, redirectPath } = useAuthGuard();
-  const { data: allSpaces = [] } = useParkingSpaces();
+  const { data: allSpaces = [], isLoading } = useParkingSpaces();
   const space = allSpaces.find((s) => s.id === id);
 
   const [isFullDay, setIsFullDay] = useState(false);
@@ -520,6 +520,14 @@ const SpaceDetail = () => {
       setBooking(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    );
+  }
 
   if (!space) {
     return (

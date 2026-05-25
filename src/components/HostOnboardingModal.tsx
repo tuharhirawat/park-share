@@ -66,7 +66,7 @@ const HostOnboardingModal = ({ open, onOpenChange }: Props) => {
 
       toast.success("Welcome aboard! You're now a host 🎉");
       onOpenChange(false);
-      navigate("/host");
+      navigate("/host/host-listing");
     } catch (err: any) {
       toast.error(err.message || "Failed to activate host account");
     } finally {
@@ -120,15 +120,45 @@ const HostOnboardingModal = ({ open, onOpenChange }: Props) => {
 
             <div className="bg-primary/5 rounded-xl p-4 space-y-3">
               <h3 className="font-semibold text-foreground flex items-center gap-2">
-                <Users className="w-4 h-4 text-primary" /> How It Works
+                <Users className="w-4 h-4 text-primary" />
+                How It Works
               </h3>
-              <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
-                <li>Accept terms and become a host</li>
-                <li>Create your parking space listing with photos and details</li>
-                <li>Configure parking slots (labeled A-1, A-2, etc.)</li>
-                <li>Users discover and book your space</li>
-                <li>Track bookings and earnings on your dashboard</li>
+
+              <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
+
+                <li> Accept terms and activate your host account </li>
+                <li>
+                  Create your parking space listing with photos, pricing and slot details
+                </li>
+                <li>
+                  Your listing will initially be submitted for
+                  <span className="font-medium text-yellow-500">
+                    {" "}review
+                  </span>
+                  .
+                </li>
+                <li>
+                  Park Mitra verifies listing details, photos and policy compliance before approval
+                </li>
+                <li>
+                  Once approved, your space becomes live and users can start booking it
+                </li>
+                <li>
+                  If rejected, you will see the rejection reason
+                  and can update your listing and reapply
+                </li>
+                <li>
+                  Track bookings, earnings and listing status from your dashboard
+                </li>
               </ol>
+            </div>
+
+            <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4">
+              <p className="text-sm text-yellow-200">
+                Listings do not go live immediately.
+                Every parking space is reviewed for safety,
+                accuracy and platform compliance before approval.
+              </p>
             </div>
 
             <div className="border-t border-border pt-4">

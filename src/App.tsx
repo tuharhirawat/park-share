@@ -10,7 +10,6 @@ import MainLayout from "@/layouts/MainLayout.tsx";
 import Index from "./pages/Index.tsx";
 import SearchPage from "./pages/SearchPage.tsx";
 import SpaceDetail from "./pages/SpaceDetail.tsx";
-import HostListingPage from "./pages/HostListingPage.tsx";
 import LoginPage from "./pages/LoginPage.tsx";
 import SignupPage from "./pages/SignupPage.tsx";
 import NotFound from "./pages/NotFound.tsx";
@@ -24,6 +23,7 @@ import About from "@/pages/About.jsx";
 import Contact from "@/pages/Contact.jsx";
 import Terms from "@/pages/Terms.tsx";
 import Privacy from "@/pages/Privacy.jsx";
+import HostListingHub from "./pages/HostListingHub.tsx";
 
 const queryClient = new QueryClient();
 validateAuthConfig();
@@ -43,10 +43,10 @@ const App = () => (
                 <Route path="/space/:id" element={ <SpaceDetail /> }
                 />
                 <Route
-                  path="/host"
+                  path="/host/host-listing"
                   element={
                     <ProtectedRoute>
-                      <HostListingPage />
+                      <HostListingHub />
                     </ProtectedRoute>
                   }
                 />

@@ -43,6 +43,7 @@ export interface DbParkingSpace {
   lat: number | null;
   lng: number | null;
   available: boolean;
+  listing_status: string;
 }
 
 const mapDbToSpace = (s: DbParkingSpace): ParkingSpace => ({
@@ -73,6 +74,8 @@ export const useParkingSpaces = () => {
       const { data, error } = await supabase
         .from("parking_spaces")
         .select("*")
+        .eq("available", true)
+        .eq("listing_status", "approved")
         .order("created_at", { ascending: false });
 
       if (error) {

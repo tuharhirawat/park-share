@@ -17,11 +17,6 @@ import HostOnboardingModal from "@/components/HostOnboardingModal";
 import MapWithSearch, { type MapWithSearchHandle } from "@/components/MapWithSearch";
 import { getLoginRoute } from "@/config/authConfig";
 
-const vehicleOptions = [
-  { id: "bike", label: "Bike", icon: Bike },
-  { id: "car", label: "Car", icon: Car },
-];
-
 const featureOptions = ["CCTV", "Covered", "Gated", "Guard", "Well-Lit", "EV Charging", "24/7 Access"];
 
 const listingSchema = z.object({
@@ -54,7 +49,11 @@ const generateSlotLabels = (count: number, prefix: string): string[] => {
   return Array.from({ length: count }, (_, i) => `${prefix}-${i + 1}`);
 };
 
-const HostListingPage = () => {
+type Props = {
+  editSpace?: any;
+};
+
+const HostListingPage = ({ editSpace }: Props) => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -62,6 +61,7 @@ const HostListingPage = () => {
   const [features, setFeatures] = useState<string[]>([]);
   const [images, setImages] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [existingImages, setExistingImages] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [location, setLocation] = useState<{
@@ -80,7 +80,21 @@ const HostListingPage = () => {
 
   const form = useForm<ListingForm>({
     resolver: zodResolver(listingSchema),
-    defaultValues: { title: "", address: "", city: "", pricePerHour: "", pricePerDay: "", description: "", carSlots: "5", bikeSlots: "5" },
+
+    defaultValues: {
+      title: editSpace?.title || "",
+      address: editSpace?.address || "",
+      city: editSpace?.city || "",
+      pricePerHour: editSpace?.price_per_hour?.toString() || "",
+      pricePerDay: editSpace?.price_per_day?.toString() || "",
+      description: editSpace?.description || "",
+      carSlots: String(
+        editSpace?.carSlots ?? 2
+      ),
+      bikeSlots: String(
+        editSpace?.bikeSlots ?? 2
+      ),
+    }
   });
 
   useEffect(() => {
@@ -89,6 +103,7 @@ const HostListingPage = () => {
       navigate(getLoginRoute());
       return;
     }
+
     if (user) {
       supabase
         .from("profiles")
@@ -105,6 +120,41 @@ const HostListingPage = () => {
         });
     }
   }, [user, loading, navigate]);
+
+  useEffect(() => {
+    if (!editSpace)
+      return;
+
+    setFeatures(editSpace.features || []);
+    setExistingImages(editSpace.image_urls || []);
+    setImages([]);
+    setImagePreviews(editSpace.image_urls || []);
+
+    setLocation({
+      lat: editSpace.lat,
+      lng: editSpace.lng,
+      address: editSpace.address
+    });
+
+    form.reset({
+      title: editSpace.title,
+      address: editSpace.address,
+      city: editSpace.city,
+      pricePerHour: String(
+        editSpace.price_per_hour || ""
+      ),
+      pricePerDay: String(
+        editSpace.price_per_day || ""
+      ),
+      description: editSpace.description || "",
+      carSlots: String(
+        editSpace.carSlots ?? 0
+      ),
+      bikeSlots: String(
+        editSpace.bikeSlots ?? 0
+      )
+    });
+  }, [editSpace, form]);
 
   const toggleItem = (arr: string[], setArr: (v: string[]) => void, item: string) => {
     setArr(arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item]);
@@ -147,21 +197,61 @@ const HostListingPage = () => {
       toast.error("Each image must be under 5 MB");
       return;
     }
-    const newImages = [...images, ...files];
-    setImages(newImages);
+    setImages(
+      prev => [
+        ...prev,
+        ...files
+      ]
+    );
+
     const newPreviews = files.map(f => URL.createObjectURL(f));
-    setImagePreviews(prev => [...prev, ...newPreviews]);
+
+    setImagePreviews(
+      prev => [
+        ...prev,
+        ...newPreviews
+      ]
+    );
   };
 
   const removeImage = (index: number) => {
-    URL.revokeObjectURL(imagePreviews[index]);
-    setImages(prev => prev.filter((_, i) => i !== index));
-    setImagePreviews(prev => prev.filter((_, i) => i !== index));
+
+    const removedUrl = imagePreviews[index];
+
+    if (removedUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(removedUrl);
+
+      const blobIndex = imagePreviews.slice(
+        0, index
+      ).filter(
+        x => x.startsWith("blob:")
+      ).length;
+
+      setImages(
+        prev => prev.filter(
+          (_, i) => i !== blobIndex
+        )
+      );
+    } else {
+      setExistingImages(
+        prev => prev.filter(
+          x => x !== removedUrl
+        )
+      );
+    }
+
+    setImagePreviews(
+      prev => prev.filter(
+        (_, i) => i !== index
+      )
+    );
   };
 
   const uploadImages = async (): Promise<string[]> => {
     if (!user) return [];
+
     const urls: string[] = [];
+
     for (const file of images) {
       const ext = file.name.split(".").pop();
       const path = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
@@ -170,20 +260,27 @@ const HostListingPage = () => {
       const { data } = supabase.storage.from("parking-images").getPublicUrl(path);
       urls.push(data.publicUrl);
     }
+
     return urls;
   };
 
   const onSubmit = async (values: ListingForm) => {
     if (!user) return;
+
     if (!location.lat || !location.lng) {
       toast.error("Please select location on map");
       setSubmitting(false);
       return;
     }
+
     setSubmitting(true);
 
     try {
       const imageUrls = await uploadImages();
+      const finalImages = [
+        ...existingImages,
+        ...imageUrls
+      ];
       const carSlots = parseInt(values.carSlots);
       const bikeSlots = parseInt(values.bikeSlots);
       const vehicle_types = [
@@ -196,33 +293,88 @@ const HostListingPage = () => {
         return;
       }
 
-      const { data: spaceData, error } = await supabase.from("parking_spaces").insert({
-        user_id: user.id,
-        title: values.title,
-        address: values.address,
-        city: values.city,
-        price_per_hour: parseFloat(values.pricePerHour),
-        price_per_day: values.pricePerDay ? parseFloat(values.pricePerDay) : null,
-        vehicle_types,
-        features,
-        description: values.description || null,
-        image_urls: imageUrls,
-        lat: location.lat,
-        lng: location.lng,
-      }).select("id").single();
+      let spaceId;
 
-      if (error) throw error;
+      if (editSpace) {
+        const { error } =
+          await supabase
+            .from("parking_spaces")
+            .update({
+              title: values.title,
+              address: values.address,
+              city: values.city,
+              listing_status: "pending",
+              reviewed_by: null,
+              reviewed_at: null,
+              rejection_reason: null,
+              price_per_hour: parseFloat(
+                values.pricePerHour
+              ),
+              price_per_day: values.pricePerDay
+                ? parseFloat(values.pricePerDay)
+                : null,
+              vehicle_types,
+              features,
+              description: values.description || null,
+              image_urls: finalImages,
+              lat: location.lat,
+              lng: location.lng
+            })
+            .eq("id", editSpace.id);
+
+        if (error) throw error;
+
+        spaceId = editSpace.id;
+      }
+      else {
+        const { data: spaceData, error } = await supabase
+          .from("parking_spaces")
+          .insert({
+            user_id: user.id,
+            title: values.title,
+            address: values.address,
+            city: values.city,
+            listing_status: "pending",
+            price_per_hour: parseFloat(
+              values.pricePerHour
+            ),
+            price_per_day: values.pricePerDay
+              ? parseFloat(values.pricePerDay)
+              : null,
+            vehicle_types,
+            features,
+            description: values.description || null,
+            image_urls: finalImages,
+            lat: location.lat,
+            lng: location.lng
+          })
+          .select("id")
+          .single();
+
+        if (error) throw error;
+
+        spaceId = spaceId;
+      }
+
+      if (editSpace) {
+        await supabase
+          .from("parking_slots")
+          .delete()
+          .eq("space_id", spaceId);
+      }
 
       // Auto-generate labeled parking slots
       const slotInserts: { space_id: string; label: string; vehicle_type: string }[] = [];
+      
       if (carSlots > 0) {
         generateSlotLabels(carSlots, "C").forEach(label => {
-          slotInserts.push({ space_id: spaceData.id, label, vehicle_type: "car" });
+          slotInserts.push({ space_id: spaceId, label, vehicle_type: "car" });
         });
       }
+      
       if (bikeSlots > 0) {
         generateSlotLabels(bikeSlots, "B").forEach(label => {
-          slotInserts.push({ space_id: spaceData.id, label, vehicle_type: "bike" });
+          slotInserts.push({ space_id: spaceId, label, vehicle_type: "bike" });
         });
       }
 
@@ -231,7 +383,11 @@ const HostListingPage = () => {
         if (slotError) console.error("Slot creation error:", slotError);
       }
 
-      toast.success("Your parking space has been listed! 🎉");
+      toast.success(
+        editSpace
+          ? "Listing resubmitted for review"
+          : "Your parking space has been listed! 🎉"
+      );
       navigate("/host/dashboard");
     } catch (err: any) {
       toast.error(err.message || "Failed to create listing");
@@ -240,30 +396,8 @@ const HostListingPage = () => {
     }
   };
 
-  if (isHost === false) {
-    return (
-      <div className="min-h-screen bg-background">
-        <HostOnboardingModal open={hostModalOpen} onOpenChange={(open) => {
-          setHostModalOpen(open);
-          if (!open) {
-            // Re-check host status
-            if (user) {
-              supabase.from("profiles").select("is_host").eq("user_id", user.id).maybeSingle()
-                .then(({ data }) => { if (data) setIsHost(data.is_host); });
-            }
-          }
-        }} />
-        <div className="pt-24 text-center px-4">
-          <h2 className="font-display text-2xl font-bold text-foreground mb-4">Become a Host First</h2>
-          <p className="text-muted-foreground mb-6">You need to complete host onboarding before listing a space.</p>
-          <Button onClick={() => setHostModalOpen(true)}>Start Host Onboarding</Button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-background">
+    <div className="bg-background">
       <div>
         <div className="container mx-auto px-4 max-w-2xl">
           <div className="text-center mb-10">
@@ -388,12 +522,23 @@ const HostListingPage = () => {
               )} />
 
               <Button type="submit" size="lg" className="w-full rounded-xl" disabled={submitting}>
-                {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Publishing...</> : "Publish Listing"}
+                {submitting
+                  ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                    )
+                  : editSpace
+                    ? "Reapply For Review"
+                    : "Publish Listing"
+                }
               </Button>
             </form>
           </Form>
         </div>
       </div>
+
       <Dialog open={mapOpen} onOpenChange={(open) => { if (!open) closeMapModal(); setMapOpen(open); }}>
         <DialogContent className="flex h-[90vh] min-h-[70vh] w-[min(86vw,72rem)] max-w-[86vw] max-h-[94vh] flex-col rounded-[32px] border border-white/10 bg-slate-950/95 shadow-[0_35px_70px_-30px_rgba(15,23,42,0.9)] backdrop-blur-xl overflow-hidden">
 
@@ -422,6 +567,7 @@ const HostListingPage = () => {
             >
               Cancel
             </button>
+            
             <button
               type="button"
               disabled={isFetchingLocation}
@@ -439,6 +585,7 @@ const HostListingPage = () => {
                 ? "Fetching location..."
                 : "Use Current Location"}
             </button>
+
             <button
               type="button"
               onClick={confirmMapLocation}

@@ -39,6 +39,7 @@ interface Space {
   last_city_change_at?: string;
   last_address_change_at?: string;
   last_feature_change_at?: string;
+  listing_status?: string;
 }
 
 interface ParkingSlot {
@@ -69,6 +70,16 @@ const DAYS = {
   ADDRESS: 60,
   FEATURES: 30,
 };
+
+const featureOptions = [
+  "CCTV",
+  "Guard",
+  "Covered",
+  "Gated",
+  "EV Charging",
+  "Well-Lit",
+  "24/7 Access"
+];
 
 const isCooldownActive = (lastDate?: string, days?: number) => {
   if (!lastDate) return false;
@@ -223,7 +234,7 @@ const HostDashboard = () => {
 
     const { data: spacesData } = await supabase
       .from("parking_spaces")
-      .select("id, title, address, city, price_per_hour, price_per_day, vehicle_types, features,  description, lat, lng, available, rating, review_count, image_urls, last_title_change_at, last_city_change_at, last_address_change_at, last_feature_change_at")
+      .select("id, title, address, city, price_per_hour, price_per_day, vehicle_types, features,  description, lat, lng, available, rating, review_count, image_urls, last_title_change_at, last_city_change_at, last_address_change_at, last_feature_change_at, listing_status")
       .eq("user_id", user.id);
 
     const hostSpaces = (spacesData || []) as Space[];
@@ -500,18 +511,44 @@ const HostDashboard = () => {
   }, [nonCancelledBookings]);
 
   const liveStatus = useMemo(() => {
+    const visibleSpaces =
+      spaces.filter(
+        s => s.listing_status !== "rejected"
+      );
+
     const now = new Date();
-    return spaces.map(s => {
+
+    return visibleSpaces.map(s => {
       const spaceBookings = bookingsBySpace[s.id] || [];
-      const activeNow = spaceBookings.filter(b => isBookingActiveNow(b, now));
+      const activeNow = spaceBookings.filter(
+        b => isBookingActiveNow(b, now)
+      );
+
       const upcomingToday = spaceBookings.filter(b => {
+
         if (!b.booking_date || !b.start_time) return false;
+
         const bd = parseISO(b.booking_date);
+
         const [sh, sm] = b.start_time.split(":").map(Number);
-        const start = new Date(bd); start.setHours(sh, sm, 0, 0);
-        return start > now && format(bd, "yyyy-MM-dd") === format(now, "yyyy-MM-dd");
+
+        const start = new Date(bd);
+
+        start.setHours(
+          sh, sm, 0, 0
+        );
+
+        return (start > now &&
+          format(bd, "yyyy-MM-dd") === format(now, "yyyy-MM-dd")
+        );
       });
-      return { ...s, activeCount: activeNow.length, upcomingCount: upcomingToday.length, totalBookings: spaceBookings.length };
+
+      return {
+        ...s,
+        activeCount: activeNow.length,
+        upcomingCount: upcomingToday.length,
+        totalBookings: spaceBookings.length
+      };
     });
   }, [spaces, bookingsBySpace]);
 
@@ -559,6 +596,154 @@ const HostDashboard = () => {
     return map;
   }, [slots]);
 
+  const getStatusStyles = (status?: string) => {
+    switch (status) {
+      case "approved":
+        return {
+          text: "Approved",
+          className: "bg-green-500/10 text-green-500 border-green-500/30"
+        };
+
+      case "pending":
+        return {
+          text: "Under Review",
+          className: "bg-yellow-500/10 text-yellow-500 border-yellow-500/30"
+        };
+
+      case "rejected":
+        return {
+          text: "Rejected",
+          className: "bg-red-500/10 text-red-500 border-red-500/30"
+        };
+
+      default:
+        return {
+          text: "Unknown",
+          className: "bg-muted"
+        };
+    }
+  };
+
+  const isReadOnlyView = editingSpace?.listing_status === "pending";
+
+  const dialogTitle = isReadOnlyView
+    ? "View Space"
+    : "Edit Space";
+
+  const showSaveButton = !isReadOnlyView;
+
+  const inputProps = {
+    readOnly: isReadOnlyView
+  };
+
+  const textareaProps = {
+    readOnly: isReadOnlyView
+  };
+
+  const handleFeatureToggle = (feature: string) => {
+    if (!editingSpace || isReadOnlyView) return;
+
+    const updated = editingSpace.features?.includes(feature)
+
+      ? editingSpace.features.filter(
+        x => x !== feature
+      )
+      : [
+        ...(editingSpace.features || []),
+        feature
+      ];
+
+    setEditingSpace({
+      ...editingSpace,
+      features: updated
+    });
+
+    setFieldErrors(prev => ({
+      ...prev,
+      features: undefined
+    }));
+  };
+
+  const handleTitleChange = (value: string) => {
+    if (!editingSpace || isReadOnlyView) return;
+
+    setEditingSpace({
+      ...editingSpace,
+      title: value
+    });
+
+    setFieldErrors(prev => ({
+      ...prev,
+      title: undefined
+    }));
+  };
+
+  const handleCityChange = (value: string) => {
+    if (!editingSpace || isReadOnlyView) return;
+
+    setEditingSpace({
+      ...editingSpace,
+      city: value
+    });
+
+    setFieldErrors(prev => ({
+      ...prev,
+      city: undefined
+    }));
+  };
+
+  const handlePricePerHourChange = (value: string) => {
+    if (!editingSpace || isReadOnlyView) return;
+
+    setEditingSpace({
+      ...editingSpace,
+      price_per_hour: Number(value)
+    });
+  };
+
+  const handlePricePerDayChange = (value: string) => {
+    if (!editingSpace || isReadOnlyView) return;
+
+    setEditingSpace({
+      ...editingSpace,
+      price_per_day:
+        value
+          ? Number(value)
+          : null
+    });
+  };
+
+  const handleDescriptionChange = (value: string) => {
+    if (!editingSpace || isReadOnlyView) return;
+
+    setEditingSpace({
+      ...editingSpace,
+      description: value
+    });
+  };
+
+  const handleAddressClick = () => {
+    if (isReadOnlyView || !editingSpace)
+      return;
+
+    setPendingLocation(editingSpace.lat && editingSpace.lng
+      ? {
+        lat: editingSpace.lat,
+        lng: editingSpace.lng,
+        address: editingSpace.address
+      }
+      : null
+    );
+
+    setMapOpen(true);
+
+    setFieldErrors(
+      prev => ({
+       ...prev,
+        address: undefined
+      }));
+  };
+
   if (authLoading || loading) {
     return (
       <div className="pt-24 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
@@ -570,7 +755,7 @@ const HostDashboard = () => {
       <div className="min-h-screen bg-background">
         <div className="pt-24 text-center">
           <p className="text-muted-foreground text-lg mb-4">You haven't listed any parking spaces yet.</p>
-          <Button onClick={() => navigate("/host")}>List Your First Space</Button>
+          <Button onClick={() => navigate("/host/host-listing")}>List Your First Space</Button>
         </div>
       </div>
     );
@@ -628,7 +813,21 @@ const HostDashboard = () => {
                     <div key={s.id} className="relative bg-card rounded-2xl p-6 card-shadow space-y-4">
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="space-y-1">
-                          <h3 className="font-bold text-foreground">{s.title}</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-foreground">
+                              {s.title}
+                            </h3>
+
+                            <Badge
+                              variant="outline"
+                              className={
+                                getStatusStyles(s.listing_status).className
+                              }
+                            >
+                              {getStatusStyles(s.listing_status).text}
+                            </Badge>
+                          </div>
+
                           <p className="text-sm text-muted-foreground flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {s.address}, {s.city}</p>
                           <p className="text-xs text-muted-foreground">
                             Capacity: {counts.car} car slots · {counts.bike} bike slots · {s.totalBookings} bookings
@@ -658,22 +857,66 @@ const HostDashboard = () => {
                       )}
 
                       <div className="flex gap-2">
-                        <Button variant="outline" size="sm" className="gap-1" onClick={() => setManagingSpaceId(s.id)}>
-                          <Plus className="w-3.5 h-3.5" /> Manage Slots
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setEditingSpace(s);
-                            setOriginalSpace(s);
-                          }}
-                        >
-                          Edit Details
-                        </Button>
-                        <Button variant="outline" size="sm" className="gap-1" onClick={() => { setImageSpaceId(s.id); imageInputRef.current?.click(); }}>
-                          <ImagePlus className="w-3.5 h-3.5" /> {uploadingImage ? "Uploading..." : "Add Images"}
-                        </Button>
+                        {s.listing_status === "approved" ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1"
+                              onClick={() =>
+                                setManagingSpaceId(s.id)
+                              }
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              Manage Slots
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setEditingSpace(s);
+                                setOriginalSpace(s);
+                              }}
+                            >
+                              Edit Details
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1"
+                              onClick={() => {
+                                setImageSpaceId(s.id);
+                                imageInputRef
+                                  .current
+                                  ?.click();
+                              }}
+                            >
+                              <ImagePlus
+                                className="w-3.5 h-3.5"
+                              />
+                              {
+                                uploadingImage
+                                  ? "Uploading..."
+                                  : "Add Images"
+                              }
+                            </Button>
+                          </>
+
+                        ) : (
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditingSpace(s);
+                              setOriginalSpace(s);
+                            }}
+                          >
+                            View Details
+                          </Button>
+                        )}
                       </div>
 
                       <div className="absolute bottom-4 right-4 flex items-center gap-2 md:bottom-4 md:right-4">
@@ -866,7 +1109,9 @@ const HostDashboard = () => {
       <Dialog open={!!editingSpace} onOpenChange={() => setEditingSpace(null)}>
         <DialogContent className="max-w-lg rounded-xl border border-border/50 overflow-visible p-5">
           <DialogHeader>
-            <DialogTitle>Edit Space</DialogTitle>
+            <DialogTitle>
+              {dialogTitle}
+            </DialogTitle>
           </DialogHeader>
 
           {editingSpace && (
@@ -874,11 +1119,9 @@ const HostDashboard = () => {
               <Input
                 className="h-9 text-sm"
                 value={editingSpace.title}
-                onChange={(e) => {
-                  setEditingSpace({ ...editingSpace, title: e.target.value });
-                  setFieldErrors(prev => ({ ...prev, title: undefined }));
-                }}
+                onChange={(e) => handleTitleChange(e.target.value)}
                 placeholder="Title"
+                {...inputProps}
               />
               {fieldErrors.title && (
                 <p className="text-xs text-red-500">{fieldErrors.title}</p>
@@ -887,20 +1130,8 @@ const HostDashboard = () => {
               <Input
                 className="h-9 text-sm"
                 value={editingSpace.address}
-                readOnly
-                onClick={() => {
-                  setPendingLocation(
-                    editingSpace.lat && editingSpace.lng
-                      ? {
-                        lat: editingSpace.lat,
-                        lng: editingSpace.lng,
-                        address: editingSpace.address,
-                      }
-                      : null
-                  );
-                  setMapOpen(true);
-                  setFieldErrors(prev => ({ ...prev, address: undefined }));
-                }}
+                onClick={() => handleAddressClick}
+                {...inputProps}
               />
               {fieldErrors.address && (
                 <p className="text-xs text-red-500">{fieldErrors.address}</p>
@@ -909,11 +1140,9 @@ const HostDashboard = () => {
               <Input
                 className="h-9 text-sm"
                 value={editingSpace.city}
-                onChange={(e) => {
-                  setEditingSpace({ ...editingSpace, city: e.target.value });
-                  setFieldErrors(prev => ({ ...prev, city: undefined }));
-                }}
+                onChange={(e) => handleCityChange(e.target.value)}
                 placeholder="City"
+                {...inputProps}
               />
               {fieldErrors.city && (
                 <p className="text-xs text-red-500">{fieldErrors.city}</p>
@@ -924,56 +1153,41 @@ const HostDashboard = () => {
                   className="h-9 text-sm"
                   type="number"
                   value={editingSpace.price_per_hour}
-                  onChange={(e) =>
-                    setEditingSpace({
-                      ...editingSpace,
-                      price_per_hour: Number(e.target.value),
-                    })
-                  }
+                  onChange={(e) => handlePricePerHourChange(e.target.value)}
                   placeholder="₹ / hour"
+                  {...inputProps}
                 />
 
                 <Input
                   className="h-9 text-sm"
                   type="number"
                   value={editingSpace.price_per_day || ""}
-                  onChange={(e) =>
-                    setEditingSpace({
-                      ...editingSpace,
-                      price_per_day: e.target.value ? Number(e.target.value) : null,
-                    })
-                  }
+                  onChange={(e) => handlePricePerDayChange(e.target.value)}
                   placeholder="₹ / day"
+                  {...inputProps}
                 />
               </div>
 
               <Textarea
                 className="min-h-[80px] text-sm"
                 value={editingSpace.description || ""}
-                onChange={(e) =>
-                  setEditingSpace({
-                    ...editingSpace,
-                    description: e.target.value,
-                  })
-                }
+                onChange={(e) => handleDescriptionChange(e.target.value)}
                 placeholder="Description"
+                {...textareaProps}
               />
 
               <div className="flex flex-wrap gap-2">
-                {["CCTV", "Guard", "Covered", "Gated", "EV Charging", "Well-Lit", "24/7 Access"].map(f => (
+                {featureOptions.map(f => (
                   <Button
-                    className="h-8 px-3 text-xs"
                     key={f}
+                    className="h-8 px-3 text-xs"
                     size="sm"
-                    variant={editingSpace.features?.includes(f) ? "default" : "outline"}
-                    onClick={() => {
-                      const updated = editingSpace.features?.includes(f)
-                        ? editingSpace.features.filter(i => i !== f)
-                        : [...(editingSpace.features || []), f];
-
-                      setEditingSpace({ ...editingSpace, features: updated });
-                      setFieldErrors(prev => ({ ...prev, features: undefined }));
-                    }}
+                    variant={editingSpace.features?.includes(f)
+                      ? "default"
+                      : "outline"
+                    }
+                    onClick={() => handleFeatureToggle(f)}
+                    disabled={isReadOnlyView}
                   >
                     {f}
                   </Button>
@@ -983,13 +1197,15 @@ const HostDashboard = () => {
                 <p className="text-xs text-red-500">{fieldErrors.features}</p>
               )}
 
-              <Button
-                className="w-full h-9 text-sm"
-                disabled={savingEdit}
-                onClick={handleSaveEdit}
-              >
-                {savingEdit ? "Saving..." : "Save Changes"}
-              </Button>
+              {showSaveButton && (
+                <Button
+                  className="w-full h-9 text-sm"
+                  disabled={savingEdit}
+                  onClick={handleSaveEdit}
+                >
+                  {savingEdit ? "Saving..." : "Save Changes"}
+                </Button>
+              )}
             </div>
           )}
         </DialogContent>

@@ -30,8 +30,8 @@ const CTASection = () => {
               className="rounded-xl text-base px-8"
               onClick={() =>
                 requireAuth(
-                  () => navigate("/host"),  
-                  "/host"
+                  () => navigate("/host-listing"),  
+                  "/host-listing"
                 )
               }
             >
