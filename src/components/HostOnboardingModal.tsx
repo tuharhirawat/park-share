@@ -35,7 +35,7 @@ const HostOnboardingModal = ({ open, onOpenChange }: Props) => {
       const { data: profile, error } = await supabase
         .from("profiles")
         .select(
-          "mobile_number,is_phone_verified,host_joined_at"
+          "mobile_number,is_phone_verified"
         )
         .eq("user_id", user.id)
         .single();
@@ -52,17 +52,34 @@ const HostOnboardingModal = ({ open, onOpenChange }: Props) => {
         return;
       }
 
+      const { data: existingHost } = await supabase
+        .from("hosts")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (existingHost) {
+        toast.error("You are already a host");
+        return;
+      }
+
       const { error: updateError } = await supabase
         .from("profiles")
         .update({
-          is_host: true,
-          host_joined_at:
-            profile.host_joined_at ??
-            new Date().toISOString(),
+          is_host: true
         })
         .eq("user_id", user.id);
 
       if (updateError) throw updateError;
+
+      const { error: hostError } = await supabase
+        .from("hosts")
+        .insert({
+          user_id: user.id,
+          joined_at: new Date().toISOString()
+        });
+
+      if (hostError) throw hostError;
 
       toast.success("Welcome aboard! You're now a host 🎉");
       onOpenChange(false);
