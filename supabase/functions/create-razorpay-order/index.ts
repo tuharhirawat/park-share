@@ -45,7 +45,7 @@ serve(async (req: Request) => {
       throw new Error("Razorpay keys not configured");
     }
 
-    const { amount, currency = "INR", receipt, notes } = await req.json();
+    const { amount, currency = "INR", receipt, notes, booking_id, payment_id } = await req.json();
 
     if (!amount || amount <= 0) {
       return new Response(JSON.stringify({ error: "Invalid amount" }), {
@@ -71,6 +71,22 @@ serve(async (req: Request) => {
     });
 
     const order = await response.json();
+
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    if (booking_id) {
+      await supabaseAdmin
+        .from("payments")
+        .update({
+          razorpay_order_id: order.id,
+          payment_stage: 'order_created',
+          order_created_at: new Date().toISOString()
+        })
+        .eq("id", payment_id);
+    }
 
     if (!response.ok) {
       console.error("Razorpay order creation failed:", order);

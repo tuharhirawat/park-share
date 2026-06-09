@@ -26,6 +26,7 @@ import {
 import { getLatestDisplayValue } from "@/lib/spaceUpdates";
 import { RefreshCw } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { calculatePricing } from "@/lib/pricingCalculator";
 
 interface Booking {
   id: string;
@@ -40,7 +41,6 @@ interface Booking {
   booking_date: string | null;
   start_time: string | null;
   end_time: string | null;
-  payment_id: string | null;
   created_at: string;
   vehicle_type: string;
   vehicle_id: string | null;
@@ -78,6 +78,7 @@ interface ExtensionConfirmation {
   type: "extend" | "reschedule"; // distinguish between extend and reschedule
   parkingExtensionCost: number;
   platformFee: number;
+  applyGraceExtension: boolean;
 }
 
 type RescheduleConfirmation = ExtensionConfirmation; // backward compatibility
@@ -87,7 +88,6 @@ type ComputedStatus = "upcoming" | "active" | "completed" | "cancelled";
 const FREE_EXTENSION_MINUTES = 10;
 const EXTEND_STEP = 15;
 const MAX_DAY_MINUTES = (23 * 60) + 59;
-const PLATFORM_FEE_PERCENTAGE = 0.2; // 20%
 
 const displayTime = (t: string | null) => (t ? t.slice(0, 5) : "--:--");
 
@@ -166,13 +166,10 @@ const calculatePricingForDuration = ({
       ? (extraMinutes / 15) * Math.ceil(pricePerHour / 4)
       : 0;
 
-  let platformFee =
-    Math.round(
-      parkingExtensionCost *
-      PLATFORM_FEE_PERCENTAGE
-    );
+  const pricing = calculatePricing(parkingExtensionCost);
 
-  let extraCost = parkingExtensionCost + platformFee;
+  let platformFee = pricing.serviceFee;
+  let extraCost = pricing.totalPayable;
 
   return {
     extraFromCurrent: extraMinutes,
@@ -252,24 +249,23 @@ const ActionNote = ({ type }: { type: "extend" | "reschedule" }) => {
 
 const RescheduleConfirmationModal = ({
   confirmation,
+  setConfirmation,
   onConfirm,
   onCancel,
   loading,
-  applyGraceExtension,
-  setApplyGraceExtension
 }:
   {
     confirmation: ExtensionConfirmation;
+    setConfirmation: React.Dispatch<React.SetStateAction<ExtensionConfirmation | null>>;
     onConfirm: () => void;
     onCancel: () => void;
     loading: boolean;
-    applyGraceExtension: boolean;
-    setApplyGraceExtension: React.Dispatch<React.SetStateAction<boolean>>;
   }) => {
-  const extraCost = applyGraceExtension ? 0 : confirmation.extraCost;
+  const extraCost = confirmation.applyGraceExtension ? 0 : confirmation.extraCost;
   const graceBase = Math.ceil((FREE_EXTENSION_MINUTES * confirmation.pricePerHour) / 60);
-  const graceDiscount = graceBase + Math.round(graceBase * PLATFORM_FEE_PERCENTAGE);
-  const payableAmount = applyGraceExtension ? Math.max(0, confirmation.extraCost - graceDiscount) : confirmation.extraCost;
+  const gracePricing = calculatePricing(graceBase);
+  const graceDiscount = gracePricing.totalPayable;
+  const payableAmount = confirmation.applyGraceExtension ? Math.max(0, confirmation.extraCost - graceDiscount) : confirmation.extraCost;
   const isFreeReschedule =
     confirmation.type === "reschedule" &&
     confirmation.extraCost === 0 &&
@@ -313,10 +309,19 @@ const RescheduleConfirmationModal = ({
                 <button
                   type="button"
                   disabled={confirmation.nextHasUsedFreeExtension}
-                  onClick={() => setApplyGraceExtension(v => !v)}
+                  onClick={() =>
+                    setConfirmation(prev =>
+                      prev
+                        ? {
+                          ...prev,
+                          applyGraceExtension: !prev.applyGraceExtension,
+                        }
+                        : prev
+                    )
+                  }
                   className={cn(
                     "w-12 h-6 rounded-full relative transition",
-                    applyGraceExtension
+                    confirmation.applyGraceExtension
                       ? "bg-primary"
                       : "bg-muted",
                     confirmation.nextHasUsedFreeExtension &&
@@ -326,7 +331,7 @@ const RescheduleConfirmationModal = ({
                   <span
                     className={cn(
                       "absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition",
-                      applyGraceExtension &&
+                      confirmation.applyGraceExtension &&
                       "translate-x-6"
                     )}
                   />
@@ -340,7 +345,7 @@ const RescheduleConfirmationModal = ({
           <div className="border-l-2 border-blue-500 pl-3 space-y-1">
             <p className="text-sm font-medium text-foreground">Duration Change</p>
             <p className="text-xs text-muted-foreground">Duration change: <span className="font-semibold">{confirmation.extraMinutes} minutes</span></p>
-            {applyGraceExtension ? (
+            {confirmation.applyGraceExtension ? (
               <p className="text-xs text-green-600 font-medium">
                 ✓ Free 10 minute grace applied.
                 You saved ₹{graceDiscount} on this extension.
@@ -387,18 +392,18 @@ const RescheduleConfirmationModal = ({
                       </span>
                     </div>
 
-                    <div className="flex justify-between text-xs">
-                      <span>
-                        Platform fee
-                      </span>
+                    {confirmation.platformFee > 0 && (
+                      <div className="flex justify-between text-xs">
+                        <span>Platform fee</span>
 
-                      <span className="font-semibold">
-                        ₹{confirmation.platformFee}
-                      </span>
-                    </div>
+                        <span className="font-semibold">
+                          ₹{confirmation.platformFee}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
-                  {applyGraceExtension && (
+                  {confirmation.applyGraceExtension && (
                     <div className="flex justify-between items-start text-xs text-green-600 bg-green-500/5 rounded-md px-2 py-2">
                       <span className="pr-3">
                         Free extension discount (10 mins)
@@ -414,7 +419,7 @@ const RescheduleConfirmationModal = ({
                   <span>Booking total after extension:</span>
                   <span className="text-yellow-600">
                     ₹{
-                      applyGraceExtension
+                      confirmation.applyGraceExtension
                         ? confirmation.newTotalPrice - graceDiscount
                         : confirmation.newTotalPrice
                     }
@@ -570,7 +575,6 @@ const MyBookingsPage = () => {
   const [extendingId, setExtendingId] = useState<string | null>(null);
   const [extendMinutes, setExtendMinutes] = useState(15);
   const [extendLoading, setExtendLoading] = useState(false);
-  const [applyGraceExtension, setApplyGraceExtension] = useState(false);
 
   // Reschedule state
   const [reschedulingId, setReschedulingId] = useState<string | null>(null);
@@ -806,10 +810,7 @@ const MyBookingsPage = () => {
   const handleExtend = async (booking: Booking) => {
     const currentEnd = (booking.end_time || "23:59").slice(0, 5);
     const currentEndMinutes = toMinutes(currentEnd);
-    const extensionMinutes =
-      applyGraceExtension
-        ? FREE_EXTENSION_MINUTES
-        : extendMinutes;
+    const extensionMinutes = extendMinutes;
     const extendEndTime = addMinutesToTime(currentEnd, extensionMinutes);
     const newEndMinutes = toMinutes(extendEndTime);
 
@@ -883,6 +884,7 @@ const MyBookingsPage = () => {
       type: "extend",
       parkingExtensionCost: pricing.parkingExtensionCost,
       platformFee: pricing.platformFee,
+      applyGraceExtension: false,
     });
   };
 
@@ -912,17 +914,14 @@ const MyBookingsPage = () => {
 
     const startMinutes = toMinutes(rescheduleStartTime);
 
-    const proposedDurationMinutes =
-      rescheduleMinutes;
+    const proposedDurationMinutes = rescheduleMinutes;
 
-    const computedEndTime =
-      addMinutesToTime(
-        rescheduleStartTime,
-        rescheduleMinutes
-      );
+    const computedEndTime = addMinutesToTime(
+      rescheduleStartTime, 
+      rescheduleMinutes
+    );
 
-    const endMinutes =
-      toMinutes(computedEndTime);
+    const endMinutes = toMinutes(computedEndTime);
 
     const isSameAsCurrent =
       rescheduleStartTime === (booking.start_time || "").slice(0, 5) &&
@@ -933,10 +932,12 @@ const MyBookingsPage = () => {
       toast.error("No changes detected. Please select different time.");
       return;
     }
+
     if (endMinutes <= startMinutes) {
       toast.error("End time must be after start time");
       return;
     }
+
     const currentDurationMinutes = booking.duration_minutes;
 
     if ((proposedDurationMinutes < currentDurationMinutes) && !skipReductionWarning) {
@@ -1021,20 +1022,52 @@ const MyBookingsPage = () => {
       type: "reschedule",
       parkingExtensionCost: pricing.parkingExtensionCost,
       platformFee: pricing.platformFee,
+      applyGraceExtension: false,
     });
   };
 
-  const handleReschedulePayment = async (confirmation: ExtensionConfirmation, booking: Booking) => {
+  const handleReschedulePayment = async (confirmation: ExtensionConfirmation, booking: Booking, payableAmount: number) => {
     const [sh, sm] = confirmation.rescheduleStartTime.split(":").map(Number);
     const [eh, em] = confirmation.rescheduleEndTime.split(":").map(Number);
     const newDurationMinutes = eh * 60 + em - sh * 60 - sm;
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const { data: paymentRow } = await supabase
+        .from("payments")
+        .insert({
+          booking_id: booking.id,
+          user_id: user?.id,
+          amount: payableAmount,
+          status: "pending",
+          payment_type: confirmation.type === "extend"
+            ? "extension"
+            : "reschedule",
+          payment_stage: "initiated",
+          currency: "INR",
+          base_price: confirmation.parkingExtensionCost,
+          platform_fee: confirmation.platformFee,
+          total_payable: payableAmount,
+          pricing_version: "v1",
+          gateway_name: "razorpay",
+        })
+        .select()
+        .single();
+
+      if (!paymentRow) {
+        throw new Error(
+          "Failed to create payment record"
+        );
+      }
+
       const [loaded, orderResponse] = await Promise.all([
+
         loadRazorpayScript(),
+
         supabase.functions.invoke("create-razorpay-order", {
           body: {
-            amount: confirmation.extraCost,
+            amount: payableAmount,
             currency: "INR",
             receipt: `${confirmation.type}_${booking.id}_${Date.now().toString(36)}`.substring(0, 40),
             notes: {
@@ -1042,6 +1075,8 @@ const MyBookingsPage = () => {
               space_id: booking.space_id,
               user_id: user?.id,
             },
+            payment_id: paymentRow?.id,
+            booking_id: booking.id
           },
         }),
       ]);
@@ -1055,7 +1090,7 @@ const MyBookingsPage = () => {
 
       const options = {
         key: orderData.key_id,
-        amount: confirmation.extraCost * 100,
+        amount: payableAmount * 100,
         currency: "INR",
         name: "Park Mitra",
         description: `Parking ${confirmation.type}: ${booking.space_title}`,
@@ -1070,7 +1105,7 @@ const MyBookingsPage = () => {
               space_address: booking.space_address,
               space_city: booking.space_city,
               duration_minutes: newDurationMinutes,
-              total_price: confirmation.newTotalPrice,
+              total_price: booking.total_price + payableAmount,
               vehicle_type: booking.vehicle_type,
               vehicle_id: booking.vehicle_id || null,
               slot_id: booking.slot_id || null,
@@ -1095,6 +1130,7 @@ const MyBookingsPage = () => {
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
                 booking_data: bookingData,
+                payment_id: paymentRow.id,
               },
             });
 
@@ -1108,7 +1144,6 @@ const MyBookingsPage = () => {
               setRescheduleStartTime("");
               setExtendingId(null);
               setExtendMinutes(15);
-              setApplyGraceExtension(false);
               fetchBookings();
             }
           } catch {
@@ -1118,7 +1153,22 @@ const MyBookingsPage = () => {
         },
         prefill: { email: user?.email },
         theme: { color: "#2a9d7c" },
-        modal: { ondismiss: () => setRescheduleLoading(false) },
+        modal: {
+          ondismiss: async () => {
+
+            await supabase
+              .from("payments")
+              .update({
+                status: "abandoned",
+                payment_stage: "checkout_closed",
+                failure_reason: "user_closed_checkout"
+              })
+              .eq("id", paymentRow.id)
+              .eq("status", "pending");
+
+            setRescheduleLoading(false);
+          }
+        }
       };
 
       setRescheduleConfirmation(null);
@@ -1129,7 +1179,33 @@ const MyBookingsPage = () => {
 
       setTimeout(() => {
         requestAnimationFrame(() => {
-          new (window as any).Razorpay(options).open();
+
+          const razorpay = new (window as any).Razorpay(options);
+
+          razorpay.on("payment.failed",
+            async (response: any) => {
+              await supabase
+                .from("payments")
+                .update({
+                  status: "failed",
+                  payment_stage: "payment_failed",
+                  failure_reason:
+                    response?.error?.description ||
+                    "Payment failed"
+                })
+                .eq("id", paymentRow.id)
+                .eq("status", "pending");
+
+              toast.error(
+                response?.error?.description ||
+                "Payment failed"
+              );
+
+              setRescheduleLoading(false);
+            }
+          );
+
+          razorpay.open();
         });
       }, 150);
     } catch (err: any) {
@@ -1148,24 +1224,37 @@ const MyBookingsPage = () => {
       return;
     }
 
-    if (applyGraceExtension && rescheduleConfirmation.extraMinutes >= 30) {
-      const adjustedMinutes =
-        Math.max(
-          0,
-          rescheduleConfirmation.extraMinutes
-          - FREE_EXTENSION_MINUTES
-        );
-
-      const adjustedParkingCost = Math.ceil((adjustedMinutes * rescheduleConfirmation.pricePerHour) / 60);
-      const adjustedPlatformFee = Math.round(adjustedParkingCost * PLATFORM_FEE_PERCENTAGE);
-      rescheduleConfirmation.extraCost = adjustedParkingCost + adjustedPlatformFee;
-      rescheduleConfirmation.newTotalPrice = booking.total_price + rescheduleConfirmation.extraCost;
+    if (rescheduleConfirmation.applyGraceExtension && rescheduleConfirmation.extraMinutes >= 30) {
       rescheduleConfirmation.nextHasUsedFreeExtension = true;
       rescheduleConfirmation.nextFreeExtensionMinutesUsed = 10;
     }
 
-    if (rescheduleConfirmation.isPaidExtension && rescheduleConfirmation.extraCost > 0) {
-      await handleReschedulePayment(rescheduleConfirmation, booking);
+    const graceBase = Math.ceil(
+      (FREE_EXTENSION_MINUTES *
+        rescheduleConfirmation.pricePerHour) / 60
+    );
+
+    const gracePricing = calculatePricing(graceBase);
+    const graceDiscount = gracePricing.totalPayable;
+
+    const payableAmount = rescheduleConfirmation.applyGraceExtension && rescheduleConfirmation.extraMinutes >= 30
+      ? Math.max(
+        0,
+        rescheduleConfirmation.extraCost -
+        graceDiscount
+      )
+      : rescheduleConfirmation.extraCost;
+
+    if (
+      rescheduleConfirmation.isPaidExtension &&
+      payableAmount > 0
+    ) {
+      await handleReschedulePayment(
+        rescheduleConfirmation,
+        booking,
+        payableAmount
+      );
+
       return;
     }
 
@@ -1210,7 +1299,6 @@ const MyBookingsPage = () => {
       setRescheduleStartTime("");
       setExtendingId(null);
       setExtendMinutes(15);
-      setApplyGraceExtension(false);
 
       fetchBookings();
     }
@@ -1417,7 +1505,7 @@ const MyBookingsPage = () => {
             )}
             {showActions && booking.computedStatus === "active" && canExtendBooking(booking) && (
               <Button variant="outline" size="sm" className="gap-1"
-                onClick={() => { setExtendingId(booking.id); setExtendMinutes(15); setApplyGraceExtension(false); setExtendLoading(false); }}>
+                onClick={() => { setExtendingId(booking.id); setExtendMinutes(15); setExtendLoading(false); }}>
                 <TimerReset className="w-3.5 h-3.5" /> Extend
               </Button>
             )}
@@ -1597,7 +1685,7 @@ const MyBookingsPage = () => {
       </div>
 
       {/* Extend Dialog */}
-      <Dialog open={!!extendingId} onOpenChange={(open) => { if (!open) { setExtendingId(null); setExtendMinutes(15); setApplyGraceExtension(false); } }}>
+      <Dialog open={!!extendingId} onOpenChange={(open) => { if (!open) { setExtendingId(null); setExtendMinutes(15); } }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Extend Parking Time</DialogTitle></DialogHeader>
           <ActionNote type="extend" />
@@ -1671,7 +1759,7 @@ const MyBookingsPage = () => {
                 <Button disabled={extendLoading || !extendBooking} onClick={() => handleExtend(extendBooking)}>
                   {extendLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Checking...</> : "Check Price & Availability"}
                 </Button>
-                <Button variant="ghost" onClick={() => { setExtendingId(null); setExtendMinutes(15); setApplyGraceExtension(false); }}>Cancel</Button>
+                <Button variant="ghost" onClick={() => { setExtendingId(null); setExtendMinutes(15); }}>Cancel</Button>
               </div>
             </div>
           )}
@@ -1824,11 +1912,12 @@ const MyBookingsPage = () => {
       {rescheduleConfirmation && (
         <RescheduleConfirmationModal
           confirmation={rescheduleConfirmation}
+          setConfirmation={setRescheduleConfirmation}
           onConfirm={handleConfirmReschedule}
-          onCancel={() => setRescheduleConfirmation(null)}
+          onCancel={() => {
+            setRescheduleConfirmation(null);
+          }}
           loading={rescheduleLoading}
-          applyGraceExtension={applyGraceExtension}
-          setApplyGraceExtension={setApplyGraceExtension}
         />
       )}
 

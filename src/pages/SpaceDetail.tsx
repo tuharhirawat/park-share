@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "
 import { getCurrentTime, isToday, isPastTime } from "@/lib/time";
 import AuthRequiredModal from "@/components/AuthRequiredModal";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
+import { calculatePricing } from "@/lib/pricingCalculator";
 
 declare global {
   interface Window {
@@ -34,6 +35,7 @@ interface UserVehicle {
   vehicle_type: string;
   brand_model: string;
   registration_number: string;
+  isBooked?: boolean;
 }
 
 interface ParkingSlot {
@@ -43,7 +45,6 @@ interface ParkingSlot {
   is_active: boolean;
 }
 
-const PLATFORM_FEE_PERCENTAGE = 0.2; // 20% platform fee
 const MIN_DURATION = 30;
 const STEP_DURATION = 15;
 const END_OF_DAY_MINUTES = (23 * 60) + 59;
@@ -184,9 +185,12 @@ const SpaceDetail = () => {
   const checkVehicleAvailability = useCallback(async () => {
     if (!selectedDate || !userVehicles.length) {
       setAvailableVehicles(
-        userVehicles.filter(v =>
-          space?.vehicleTypes.includes(v.vehicle_type as any)
-        )
+        userVehicles
+          .filter(v => space?.vehicleTypes.includes(v.vehicle_type as any))
+          .map(v => ({
+            ...v,
+            isBooked: false
+          }))
       );
       return;
     }
@@ -204,12 +208,14 @@ const SpaceDetail = () => {
 
     const bookedVehicleIds = new Set((bookings || []).map(b => b.vehicle_id));
 
-    const filtered = userVehicles.filter(v =>
-      !bookedVehicleIds.has(v.id) &&
-      space?.vehicleTypes.includes(v.vehicle_type as any)
-    );
+    const vehiclesData = userVehicles
+      .filter(v => space?.vehicleTypes.includes(v.vehicle_type as any))
+      .map(v => ({
+        ...v,
+        isBooked: bookedVehicleIds.has(v.id)
+      }));
 
-    setAvailableVehicles(filtered);
+    setAvailableVehicles(vehiclesData);
   }, [userVehicles, selectedDate, startTime, duration, isFullDay, space?.vehicleTypes]);
 
   useEffect(() => {
@@ -363,6 +369,16 @@ const SpaceDetail = () => {
               vehicle_id: selectedVehicleId,
               slot_id: selectedSlotId || null,
               user_id: user.id
+            },
+
+            payment_data: {
+              base_price: pricing.basePrice,
+              host_payout: pricing.hostPayout,
+              host_commission: pricing.hostCommission,
+              platform_fee: pricing.serviceFee,
+              gst_amount: pricing.gst,
+              total_payable: pricing.totalPayable,
+              pricing_version: pricing.version
             }
           }
         }
@@ -400,6 +416,7 @@ const SpaceDetail = () => {
             currency: "INR",
             receipt: `bk_${dbSpaceId.slice(0, 8)}_${Date.now().toString(36)}`.substring(0, 40),
             notes: { space_id: dbSpaceId, user_id: user.id },
+            booking_id: bookingId
           },
         }
       );
@@ -432,6 +449,13 @@ const SpaceDetail = () => {
                     space_city: space.city,
                     duration_minutes: Math.floor(effectiveHours * 60),
                     total_price: totalPrice,
+                    base_price: pricing.basePrice,
+                    host_payout: pricing.hostPayout,
+                    host_commission: pricing.hostCommission,
+                    platform_fee: pricing.serviceFee,
+                    gst_amount: pricing.gst,
+                    total_payable: pricing.totalPayable,
+                    pricing_version: pricing.version,
                     booking_date: format(selectedDate!, "yyyy-MM-dd"),
                     start_time: actualStartTime,
                     end_time: actualEndTime,
@@ -487,6 +511,15 @@ const SpaceDetail = () => {
                 .eq("status", "pending");
             }
 
+            await supabase
+              .from("payments")
+              .update({
+                status: "abandoned",
+                failure_reason: "user_closed_payment_modal"
+              })
+              .eq("booking_id", bookingId)
+              .eq("status", "pending");
+
             setBooking(false);
           }
         },
@@ -502,6 +535,15 @@ const SpaceDetail = () => {
             .eq("status", "pending");
         }
 
+        await supabase
+          .from("payments")
+          .update({
+            status: "failed",
+            failure_reason: "gateway_failure"
+          })
+          .eq("booking_id", bookingId)
+          .eq("status", "pending");
+
         toast.error("Payment failed. Please try again.");
         setBooking(false);
       });
@@ -514,9 +556,18 @@ const SpaceDetail = () => {
           .update({ status: "payment_abandoned" })
           .eq("id", bookingId)
           .eq("status", "pending");
+
+        await supabase
+          .from("payments")
+          .update({
+            status: "abandoned",
+            failure_reason: "exception_during_payment_flow"
+          })
+          .eq("booking_id", bookingId)
+          .eq("status", "pending");
       }
 
-      toast.error(err.message || "Payment failed");
+      toast.error(err?.message || "Payment failed");
       setBooking(false);
     }
   };
@@ -553,8 +604,8 @@ const SpaceDetail = () => {
     basePrice = Math.round(space.pricePerHour * effectiveHours);
   }
 
-  const serviceFee = Math.round(basePrice * PLATFORM_FEE_PERCENTAGE);
-  const totalPrice = basePrice + serviceFee;
+  const pricing = calculatePricing(basePrice);
+  const totalPrice = pricing.totalPayable;
 
   const hasSlotsForVehicle = slots.some(
     s => s.vehicle_type === selectedVehicle
@@ -580,6 +631,10 @@ const SpaceDetail = () => {
     bike: <Bike className="w-4 h-4" />,
     car: <Car className="w-4 h-4" />,
   };
+
+  const availableVehicleCount = availableVehicles.filter(
+    v => !v.isBooked
+  ).length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -667,7 +722,7 @@ const SpaceDetail = () => {
                   <label className="text-sm font-semibold text-foreground mb-2 block">Select Vehicle</label>
                   {loadingVehicles ? (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div>
-                  ) : availableVehicles.length === 0 ? (
+                  ) : availableVehicleCount === 0 ? (
                     <div className="text-sm text-muted-foreground">
                       <p>No available vehicles for selected time.</p>
                       <Button
@@ -687,7 +742,7 @@ const SpaceDetail = () => {
                     <Select value={selectedVehicleId} onValueChange={(vid) => {
                       setSelectedVehicleId(vid);
                       const veh = availableVehicles.find(v => v.id === vid);
-                      if (veh) setSelectedVehicle(veh.vehicle_type);
+                      if (veh && !veh.isBooked) setSelectedVehicle(veh.vehicle_type);
                       setSelectedSlotId("");
                       setErrors(prev => ({ ...prev, vehicle: "" }));
                     }}>
@@ -696,8 +751,13 @@ const SpaceDetail = () => {
                       </SelectTrigger>
                       <SelectContent>
                         {availableVehicles.map((v) => (
-                          <SelectItem key={v.id} value={v.id}>
-                            {v.brand_model} — {v.registration_number} ({v.vehicle_type})
+                          <SelectItem
+                            key={v.id}
+                            value={v.id}
+                            disabled={v.isBooked}
+                          >
+                            {v.brand_model} — {v.registration_number}
+                            {" ("} {v.vehicle_type} {")"} {v.isBooked && " 🔒 Booked"}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -929,10 +989,12 @@ const SpaceDetail = () => {
                     </span>
                     <span className="text-foreground font-medium">₹{basePrice}</span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Service fee</span>
-                    <span className="text-foreground font-medium">₹{serviceFee}</span>
-                  </div>
+                  {pricing.serviceFee > 0 &&
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Service fee</span>
+                      <span className="text-foreground font-medium">₹{pricing.serviceFee}</span>
+                    </div>
+                  }
                   <div className="flex justify-between font-bold text-foreground pt-2 border-t border-border">
                     <span>Total</span>
                     <span>₹{totalPrice}</span>

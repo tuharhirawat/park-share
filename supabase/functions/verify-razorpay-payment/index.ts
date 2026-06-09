@@ -44,6 +44,7 @@ serve(async (req: Request) => {
       razorpay_payment_id,
       razorpay_signature,
       booking_data,
+      payment_id,
     } = await req.json();
 
     if (!booking_data?.space_id) {
@@ -151,7 +152,6 @@ serve(async (req: Request) => {
         slot_id: booking_data.slot_id || null,
         has_used_free_extension: booking_data.has_used_free_extension ?? false,
         free_extension_minutes_used: booking_data.free_extension_minutes_used ?? 0,
-        payment_id: razorpay_payment_id,
         status: "confirmed",
         expires_at: null
       })
@@ -169,6 +169,17 @@ serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    await supabaseAdmin
+      .from("payments")
+      .update({
+        razorpay_payment_id: razorpay_payment_id,
+        status: "success",
+        payment_stage: "payment_verified",
+        verified_at: new Date().toISOString(),
+      })
+      .eq("id", payment_id)
+      .eq("status", "pending");
 
     // if (booking_data.booking_id) {
     //   const { error: updateError } = await supabaseAdmin

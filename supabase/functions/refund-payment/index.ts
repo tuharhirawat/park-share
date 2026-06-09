@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,6 +42,22 @@ serve(async (req) => {
     );
 
     const data = await res.json();
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    await supabase
+      .from("payments")
+      .update({
+        status: "refunded",
+        payment_stage: "refunded",
+        refund_amount: data.amount
+          ? data.amount / 100
+          : 0
+      })
+      .eq("razorpay_payment_id", payment_id);
 
     return new Response(JSON.stringify(data), {
       headers: {
