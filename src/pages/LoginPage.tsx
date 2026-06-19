@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useLocation, Navigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import api from "@/services/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { GoogleSignIn } from "@/components/GoogleSignIn";
 import { Separator } from "@/components/ui/separator";
 import { hasEmailAuth, isAuthProviderEnabled, getLoginRoute } from "@/config/authConfig";
+import { useAuth } from "@/hooks/use-auth";
 
 const loginSchema = z.object({
   email: z.string().trim().min(1, "Email is required").email("Please enter a valid email"),
@@ -24,6 +25,7 @@ type LoginForm = z.infer<typeof loginSchema>;
 const LoginPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { refreshUser } = useAuth();
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || "/";
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -35,18 +37,22 @@ const LoginPage = () => {
 
   const onSubmit = async (values: LoginForm) => {
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: values.email,
-      password: values.password,
-    });
-    setLoading(false);
-    if (error) {
-      toast.error(error.message);
-    } else {
+    try {
+      await api.post("/Auth/Login", {
+        email: values.email,
+        password: values.password,
+      });
+
+      await refreshUser();
+
       toast.success("Logged in successfully!");
-      setTimeout(() => {
-        navigate(from, { replace: true });
-      }, 300);
+      navigate(from, { replace: true });
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message || "Login failed"
+      );
+    } finally {
+      setLoading(false);
     }
   };
 

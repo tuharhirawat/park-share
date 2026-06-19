@@ -5,7 +5,6 @@ import { Car, Menu, X, LogOut, User, ChevronDown } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -28,15 +27,7 @@ const Navbar = () => {
   const location = useLocation();
 
   useEffect(() => {
-    if (!user) { setIsHost(false); return; }
-    supabase
-      .from("profiles")
-      .select("is_host")
-      .eq("user_id", user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) setIsHost(data.is_host);
-      });
+    setIsHost(user?.isHost ?? false);
   }, [user]);
 
   const handleLogout = async () => {
@@ -102,7 +93,7 @@ const Navbar = () => {
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm" className="gap-1">
                       <User className="w-4 h-4" />
-                      <span className="max-w-[100px] truncate">{user.user_metadata?.full_name || user.email?.split("@")[0]}</span>
+                      <span className="max-w-[100px] truncate">{user?.fullName || user?.email?.split("@")[0]}</span>
                       <ChevronDown className="w-3 h-3" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -182,8 +173,8 @@ const Navbar = () => {
                     activeClassName={mobileActiveClass}
                     onClick={() => setIsOpen(false)}
                   >
-                  My Profile
-                </NavLink>
+                    My Profile
+                  </NavLink>
                 )}
                 <NavLink
                   to="/vehicles"

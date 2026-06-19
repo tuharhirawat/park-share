@@ -1,52 +1,99 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import api from "@/services/api";
 import { supabase } from "@/integrations/supabase/client";
-import type { User, Session } from "@supabase/supabase-js";
+
+interface AuthUser {
+  userId: string;
+  fullName: string;
+  email: string;
+  mobileNumber: string;
+  isHost: boolean;
+  currentStatus: string;
+}
 
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
+  user: AuthUser | null;
   loading: boolean;
   signOut: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  session: null,
   loading: true,
-  signOut: async () => {},
+  signOut: async () => { },
+  refreshUser: async () => { },
 });
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const refreshUser = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (session) {
+      try {
+        const response = await api.post("/GoogleAuth/GetGoogleUser", {
+          accessToken: session.access_token
+        });
+
+        setUser(response.data);
+        return;
+      } catch (error) {
+        setUser(null);
+        throw error;
+      }
+    }
+
+    try {
+      const response = await api.get("/Auth/Me");
+      setUser(response.data);
+    } catch {
+      setUser(null);
+    }
+  };
+
   useEffect(() => {
-    const getInitialSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
-      setLoading(false);
+    const initialize = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (session) {
+          const response = await api.post("/GoogleAuth/GetGoogleUser", {
+            accessToken: session.access_token
+          });
+
+          setUser(response.data);
+        } else {
+          await refreshUser();
+        }
+      } catch (error) {
+        console.error("Auth initialization failed:", error);
+        await supabase.auth.signOut();
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
     };
 
-    getInitialSession();
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-    });
-
-    return () => {
-      listener.subscription.unsubscribe();
-    };
+    initialize();
   }, []);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (session) {
+      await supabase.auth.signOut();
+    } else {
+      await api.post("/Auth/Logout");
+    }
+
+    setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signOut, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

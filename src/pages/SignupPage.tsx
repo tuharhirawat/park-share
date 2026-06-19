@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Link, useNavigate, Navigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +21,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { GoogleSignIn } from "@/components/GoogleSignIn";
 import { Separator } from "@/components/ui/separator";
 import { getLoginRoute, isAuthProviderEnabled, hasEmailAuth } from "@/config/authConfig";
+import api from "@/services/api";
 
 const signupSchema = z
   .object({
@@ -93,86 +93,29 @@ const SignupPage = () => {
   });
 
   const onSubmit = async (values: SignupForm) => {
-    
+
     if (loading) return;
     setLoading(true);
 
-    const { data: existingUsers, error: existingUsersError } =
-      await supabase
-        .from("profiles")
-        .select("mobile_number,email")
-        .or(
-          `mobile_number.eq.${values.mobile},email.eq.${values.email}`
-        );
+    const normalizedEmail = values.email.toLowerCase();
 
-    if (existingUsersError) { 
-      toast.error("Unable to validate account details. Please try again later.");
-      setLoading(false);
-      return;
-    }
+    try {
+      const response = await api.post("/Auth/Signup", {
+        fullName: values.name,
+        email: normalizedEmail,
+        mobileNumber: values.mobile,
+        password: values.password,
+      });
 
-    const normalizedEmail = values.email.trim().toLowerCase();
-
-    const mobileExists =
-      existingUsers?.some(
-        user => user.mobile_number === values.mobile
+      toast.success(response.data.message || "Account created! Check your email to verify.");
+      navigate("/login");
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message || "Signup failed"
       );
-
-    const emailExists =
-      existingUsers?.some(
-        user => user.email?.toLowerCase() === normalizedEmail
-      );
-
-    if (mobileExists || emailExists) {
-
-      if (mobileExists) {
-        form.setError(
-          "mobile", {
-            message:  "This mobile number is already registered"
-          }
-        );
-      }
-
-      if (emailExists) {
-        form.setError(
-          "email", {
-            message: "Account with this email already exists. Please log in."
-          }
-        );
-      }
-
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const { data, error } = await supabase.auth.signUp({
-      email: normalizedEmail,
-      password: values.password,
-      options: {
-        data: { 
-          full_name: values.name,
-          mobile_number: values.mobile, 
-        },
-        emailRedirectTo: window.location.origin,
-      },
-    });
-
-    if (error) {
-      toast.error(error.message);
-      setLoading(false);
-      return;
-    }
-
-    if (data.user) {
-      await supabase
-        .from("profiles")
-        .update({ mobile_number: values.mobile, full_name: values.name, email: normalizedEmail })
-        .eq("user_id", data.user.id);
-    }
-
-    setLoading(false);
-    toast.success("Account created! Check your email to verify.");
-    navigate("/login");
   };
 
   if (!hasEmailAuth()) {
