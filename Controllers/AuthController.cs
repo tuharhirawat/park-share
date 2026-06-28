@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using ParkMitra_BE.DTOs;
 using ParkMitra_BE.DTOs.Auth;
 using ParkMitra_BE.Services;
 
@@ -60,12 +61,71 @@ namespace ParkMitra_BE.Controllers
             if (string.IsNullOrEmpty(accessToken))
                 return Unauthorized();
 
-            var user = await _currentUserService.GetCurrentUserAsync(accessToken);
+            try
+            {
+                var user = await _currentUserService.GetCurrentUserAsync(accessToken);
 
-            if (user == null)
-                return Unauthorized();
+                if (user == null)
+                    return Unauthorized();
 
-            return Ok(user);
+                return Ok(user);
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new ApiResponseDto
+                {
+                    Success = false,
+                    Message = "Unable to initialize your account. Please try again." 
+                });
+            }
+        }
+
+        [HttpPost("EstablishSession")]
+        public async Task<IActionResult> EstablishSession(EstablishSessionRequestDto request)
+        {
+            if (string.IsNullOrWhiteSpace(request.AccessToken))
+            {
+                return BadRequest(new ApiResponseDto
+                {
+                    Success = false,
+                    Message = "Access token is required."
+                });
+            }
+
+            try
+            {
+                var currentUser = await _currentUserService.GetCurrentUserAsync(request.AccessToken);
+
+                if (currentUser == null)
+                {
+                    return Unauthorized(new ApiResponseDto
+                    {
+                        Success = false,
+                        Message = "Invalid or expired access token."
+                    });
+                }
+
+                _cookieService.SetAuthCookies(
+                    Response,
+                    request.AccessToken,
+                    request.RefreshToken,
+                    request.ExpiresIn
+                );
+
+                return Ok(new ApiResponseDto
+                {
+                    Success = true,
+                    Message = "Session established successfully."
+                });
+            }
+            catch
+            {
+                return StatusCode(500, new ApiResponseDto
+                {
+                    Success = false,
+                    Message = "Unable to establish session."
+                });
+            }
         }
 
         [HttpPost("Logout")]
