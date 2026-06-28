@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase } from "@/integrations/supabase/client";
+import api from "@/services/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,7 +31,7 @@ const passwordSchema = z
   .object({
     newPassword: z
       .string()
-      .min(6, "Password must be at least 6 characters")
+      .min(8, "Password must be at least 8 characters")
       .max(72)
       .regex(/[A-Z]/, "Include at least one uppercase letter")
       .regex(/[0-9]/, "Include at least one number"),
@@ -47,7 +47,7 @@ type EmailForm = z.infer<typeof emailSchema>;
 type PasswordForm = z.infer<typeof passwordSchema>;
 
 const ProfilePage = () => {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -74,81 +74,118 @@ const ProfilePage = () => {
     if (!authLoading && !user) navigate("/login");
   }, [user, authLoading, navigate]);
 
-  const fetchProfile = useCallback(async () => {
+  useEffect(() => {
     if (!user) return;
-    setLoadingProfile(true);
-    const { data } = await supabase
-      .from("profiles")
-      .select("full_name, mobile_number")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    if (data) {
-      profileForm.reset({
-        full_name: data.full_name || "",
-        mobile_number: data.mobile_number || "",
-      });
-    }
-    emailForm.reset({ email: user.email || "" });
+
+    profileForm.reset({
+      full_name: user.fullName || "",
+      mobile_number: user.mobileNumber || ""
+    });
+
+    emailForm.reset({
+      email: user.email || ""
+    });
+
     setLoadingProfile(false);
   }, [user]);
 
-  useEffect(() => {
-    if (user) fetchProfile();
-  }, [user, fetchProfile]);
-
   const onSaveProfile = async (values: ProfileForm) => {
-    if (!user) return;
     setSavingProfile(true);
 
-    // Check mobile uniqueness
-    if (values.mobile_number) {
-      const { data: existing } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("mobile_number", values.mobile_number)
-        .neq("user_id", user.id)
-        .maybeSingle();
-      if (existing) {
-        profileForm.setError("mobile_number", { message: "This mobile number is already registered" });
-        setSavingProfile(false);
-        return;
+    try {
+      await api.put("/Profile", {
+        fullName: values.full_name,
+        mobileNumber: values.mobile_number
+      });
+
+      toast.success("Profile updated!");
+
+      await refreshUser();
+    }
+    catch (error: any) {
+      toast.error(
+        error?.response?.data?.message ||
+        "Failed to update profile"
+      );
+
+      if (user) {
+        profileForm.reset({
+          full_name: user.fullName || "",
+          mobile_number: user.mobileNumber || ""
+        });
       }
     }
-
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        full_name: values.full_name,
-        mobile_number: values.mobile_number || null,
-      })
-      .eq("user_id", user.id);
-
-    setSavingProfile(false);
-    if (error) toast.error("Failed to update profile");
-    else toast.success("Profile updated!");
+    finally {
+      setSavingProfile(false);
+    }
   };
 
   const onSaveEmail = async (values: EmailForm) => {
     if (!user) return;
+
     if (values.email === user.email) {
       toast.info("This is already your current email");
       return;
     }
+
     setSavingEmail(true);
-    const { error } = await supabase.auth.updateUser({ email: values.email });
-    setSavingEmail(false);
-    if (error) toast.error(error.message);
-    else toast.success("Verification email sent to your new address. Please confirm to complete the change.");
+
+    try {
+      const response = await api.put(
+        "/Profile/UpdateEmail",
+        {
+          email: values.email
+        }
+      );
+
+      await refreshUser();
+
+      toast.success(
+        response.data.message ||
+        "Verification email sent to your new address."
+      );
+    }
+    catch (error: any) {
+      toast.error(
+        error?.response?.data?.message ||
+        "Failed to update email"
+      );
+
+      emailForm.reset({
+        email: user.email
+      });
+    }
+    finally {
+      setSavingEmail(false);
+    }
   };
 
   const onSavePassword = async (values: PasswordForm) => {
     setSavingPassword(true);
-    const { error } = await supabase.auth.updateUser({ password: values.newPassword });
-    setSavingPassword(false);
-    if (error) toast.error(error.message);
-    else {
-      toast.success("Password updated!");
+
+    try {
+      const response = await api.put(
+        "/Profile/UpdatePassword",
+        {
+          newPassword: values.newPassword
+        }
+      );
+
+      toast.success(
+        response.data.message ||
+        "Password updated successfully."
+      );
+
       passwordForm.reset();
+    }
+    catch (error: any) {
+      toast.error(
+        error?.response?.data?.message ||
+        "Failed to update password"
+      );
+    }
+    finally {
+      setSavingPassword(false);
     }
   };
 
@@ -207,12 +244,27 @@ const ProfilePage = () => {
                   <FormField control={emailForm.control} name="email" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Email</FormLabel>
-                      <FormControl><Input type="email" {...field} /></FormControl>
+                      <FormControl>
+                        <Input
+                          type="email"
+                          {...field}
+                          disabled={!user?.canChangeEmail}
+                        />
+                      </FormControl>
                       <FormMessage />
-                      <p className="text-xs text-muted-foreground">Changing email requires verification via the new address.</p>
+                      {user?.canChangeEmail ? (
+                        <p className="text-xs text-muted-foreground">
+                          Changing email requires verification via the new address.
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          This account is linked with Google sign-in.
+                          Email changes are not supported.
+                        </p>
+                      )}
                     </FormItem>
                   )} />
-                  <Button type="submit" disabled={savingEmail}>
+                  <Button type="submit" disabled={savingEmail || !user?.canChangeEmail}>
                     {savingEmail ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Updating...</> : "Update Email"}
                   </Button>
                 </form>
