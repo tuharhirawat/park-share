@@ -1,4 +1,4 @@
-﻿namespace ParkMitra_BE.DTOs
+﻿namespace ParkMitra_BE.DTOs.Profile
 {
     public class ProfileDto
     {

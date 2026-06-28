@@ -1,4 +1,4 @@
-﻿namespace ParkMitra_BE.DTOs.Auth
+﻿namespace ParkMitra_BE.DTOs
 {
     public class ApiResponseDto
     {

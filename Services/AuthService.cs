@@ -12,18 +12,18 @@ namespace ParkMitra_BE.Services
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
         private readonly ApplicationDbContext _context;
-        private readonly UserInitializationService _userInitializationService;
+        private readonly CurrentUserService _currentUserService;
 
         public AuthService(
             IHttpClientFactory httpClientFactory, 
             IConfiguration configuration, 
             ApplicationDbContext context,
-            UserInitializationService userInitializationService)
+            CurrentUserService currentUserService)
         {
             _httpClient = httpClientFactory.CreateClient();
             _configuration = configuration;
             _context = context;
-            _userInitializationService = userInitializationService;
+            _currentUserService = currentUserService;
         }
 
         public async Task<SignupResponseDto> SignupAsync(SignupRequestDto request)
@@ -89,54 +89,10 @@ namespace ParkMitra_BE.Services
                 };
             }
 
-            Guid? userId = null;
-
-            using (var document = JsonDocument.Parse(responseContent))
-            {
-                var root = document.RootElement;
-
-                if (root.TryGetProperty("user", out var userElement) && userElement.TryGetProperty("id", out var idElement))
-                {
-                    var userIdString = idElement.GetString();
-
-                    if (Guid.TryParse(userIdString, out var parsedUserId))
-                    {
-                        userId = parsedUserId;
-                    }
-                }
-            }
-
-            if (!userId.HasValue)
-            {
-                return new SignupResponseDto
-                {
-                    Success = false,
-                    Message = "User created in authentication system but user ID could not be retrieved."
-                };
-            }
-
-            var initializeSuccess = await _userInitializationService.InitializeNewUserAsync(
-                userId.Value,
-                normalizedFullName,
-                normalizedMobile,
-                normalizedEmail
-            );
-
-            if (!initializeSuccess)
-            {
-                return new SignupResponseDto
-                {
-                    Success = false,
-                    Message = "Account created but failed to initialize user data.",
-                    UserId = userId
-                };
-            }
-
             return new SignupResponseDto
             {
                 Success = true,
                 Message = "Account created successfully. Please verify your email.",
-                UserId = userId
             };
         }
 
@@ -198,13 +154,30 @@ namespace ParkMitra_BE.Services
 
             var root = document.RootElement;
 
+            var accessToken = root.GetProperty("access_token").GetString() ?? "";
+
+            var refreshToken = root.GetProperty("refresh_token").GetString() ?? "";
+
+            var expiresIn = root.GetProperty("expires_in").GetInt32();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+
+            if (currentUser == null)
+            {
+                return new LoginResponseDto
+                {
+                    Success = false,
+                    Message = "Unable to initialize your account. Please try again."
+                };
+            }
+
             return new LoginResponseDto
             {
                 Success = true,
                 Message = "Login successful",
-                AccessToken = root.GetProperty("access_token").GetString() ?? "",
-                RefreshToken = root.GetProperty("refresh_token").GetString() ?? "",
-                ExpiresIn = root.GetProperty("expires_in").GetInt32()
+                AccessToken = accessToken ?? "",
+                RefreshToken = refreshToken ?? "",
+                ExpiresIn = expiresIn,
             };
         }
     }

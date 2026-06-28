@@ -6,6 +6,14 @@ namespace ParkMitra_BE.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+
+    // TODO:
+    // This controller is temporarily unused.
+    // Authentication currently flows through
+    // Auth/EstablishSession -> Auth/Me.
+    //
+    // Keeping this implementation as it will be reused
+    // when Google OAuth is moved entirely to the backend.
     public class GoogleAuthController : ControllerBase
     {
         private readonly GoogleAuthService _googleAuthService;
