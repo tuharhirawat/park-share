@@ -2,24 +2,25 @@
 using ParkMitra_BE.Data;
 using ParkMitra_BE.DTOs;
 using ParkMitra_BE.DTOs.Profile;
+using ParkMitra_BE.Infrastructure.Clients;
 using ParkMitra_BE.Models;
-using System.Net.Http.Headers;
-using System.Text;
-using System.Text.Json;
 
 namespace ParkMitra_BE.Services
 {
+    /// <summary>
+    /// Handles profile management and coordinates profile-related
+    /// operations between the application database and Supabase
+    /// Authentication.
+    /// </summary>
     public class ProfileService
     {
         private readonly ApplicationDbContext _context;
-        private readonly HttpClient _httpClient;
-        private readonly IConfiguration _configuration;
+        private readonly ISupabaseAuthClient _supabaseAuthClient;
 
-        public ProfileService(ApplicationDbContext context, HttpClient httpClient, IConfiguration configuration)
+        public ProfileService(ApplicationDbContext context, ISupabaseAuthClient supabaseAuthClient)
         {
             _context = context;
-            _httpClient = httpClient;
-            _configuration = configuration;
+            _supabaseAuthClient = supabaseAuthClient;
         }
 
         public async Task<List<ProfileDto>> GetProfilesAsync()
@@ -110,31 +111,13 @@ namespace ParkMitra_BE.Services
                 };
             }
 
-            var body = new
-            {
-                email = normalizedEmail
-            };
-
-            var json = JsonSerializer.Serialize(body);
-
-            var content = new StringContent(
-                    json,
-                    Encoding.UTF8,
-                    "application/json"
+            var response = await _supabaseAuthClient.UpdateAuthenticatedUserAsync(
+                accessToken,
+                new
+                {
+                    email = normalizedEmail
+                }
             );
-
-            _httpClient.DefaultRequestHeaders.Clear();
-
-            _httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue(
-                    "Bearer",
-                    accessToken);
-
-            _httpClient.DefaultRequestHeaders.Add(
-                "apikey",
-                _configuration["Supabase:AnonKey"]);
-
-            var response = await _httpClient.PutAsync($"{_configuration["Supabase:Url"]}/auth/v1/user", content);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -159,33 +142,13 @@ namespace ParkMitra_BE.Services
             string accessToken, string newPassword
         )
         {
-            var body = new
-            {
-                password = newPassword
-            };
-
-            var json = JsonSerializer.Serialize(body);
-
-            var content = new StringContent(
-                json,
-                Encoding.UTF8,
-                "application/json");
-
-            _httpClient.DefaultRequestHeaders.Clear();
-
-            _httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue(
-                    "Bearer",
-                    accessToken);
-
-            _httpClient.DefaultRequestHeaders.Add(
-                "apikey",
-                _configuration["Supabase:AnonKey"]);
-
-            var response =
-                await _httpClient.PutAsync(
-                    $"{_configuration["Supabase:Url"]}/auth/v1/user",
-                    content);
+            var response = await _supabaseAuthClient.UpdateAuthenticatedUserAsync(
+                accessToken,
+                new
+                {
+                    password = newPassword
+                }
+            );
 
             if (!response.IsSuccessStatusCode)
             {

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ParkMitra_BE.Data;
+using ParkMitra_BE.Infrastructure.Clients;
 using ParkMitra_BE.Services;
 
 namespace ParkMitra_BE;
@@ -20,6 +21,7 @@ public class Program
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen();
 
+        // Business Services
         builder.Services.AddScoped<AuthService>();
         builder.Services.AddScoped<GoogleAuthService>();
         builder.Services.AddScoped<CookieService>();
@@ -30,7 +32,20 @@ public class Program
         builder.Services.AddScoped<ParkingSpaceService>();
         builder.Services.AddScoped<BookingService>();
 
+        // Infrastructure Clients
+        builder.Services.AddScoped<ISupabaseAuthClient, SupabaseAuthClient>();
+
+        // Http Clients
         builder.Services.AddHttpClient();
+
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? GetLegacyOrigin(builder.Configuration["FrontendUrl"]);
+
+        if (allowedOrigins.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "At least one frontend origin must be configured in Cors:AllowedOrigins or FrontendUrl.");
+        }
 
         builder.Services.AddCors(options =>
         {
@@ -38,7 +53,7 @@ public class Program
                 policy =>
                 {
                     policy
-                        .WithOrigins("http://localhost:8080", "http://localhost:8081")
+                        .WithOrigins(allowedOrigins)
                         .AllowAnyHeader()
                         .AllowAnyMethod()
                         .AllowCredentials();
@@ -63,5 +78,12 @@ public class Program
         app.MapControllers();
 
         app.Run();
+    }
+
+    private static string[] GetLegacyOrigin(string? frontendUrl)
+    {
+        return string.IsNullOrWhiteSpace(frontendUrl)
+            ? []
+            : [frontendUrl];
     }
 }

@@ -1,27 +1,28 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using ParkMitra_BE.Data;
 using ParkMitra_BE.DTOs.Auth;
-using System.Net.Http.Headers;
-using System.Text;
+using ParkMitra_BE.Infrastructure.Clients;
 using System.Text.Json;
 
 namespace ParkMitra_BE.Services
 {
+    /// <summary>
+    /// Handles authentication workflows including signup,
+    /// login and validation while delegating all Supabase
+    /// communication to the authentication client.
+    /// </summary>
     public class AuthService
     {
-        private readonly HttpClient _httpClient;
-        private readonly IConfiguration _configuration;
+        private readonly ISupabaseAuthClient _supabaseAuthClient;
         private readonly ApplicationDbContext _context;
         private readonly CurrentUserService _currentUserService;
 
         public AuthService(
-            IHttpClientFactory httpClientFactory, 
-            IConfiguration configuration, 
+            ISupabaseAuthClient supabaseAuthClient,
             ApplicationDbContext context,
             CurrentUserService currentUserService)
         {
-            _httpClient = httpClientFactory.CreateClient();
-            _configuration = configuration;
+            _supabaseAuthClient = supabaseAuthClient;
             _context = context;
             _currentUserService = currentUserService;
         }
@@ -48,9 +49,6 @@ namespace ParkMitra_BE.Services
                 };
             }
 
-            var supabaseUrl = _configuration["Supabase:Url"];
-            var serviceRoleKey = _configuration["Supabase:ServiceRoleKey"];
-
             var signupRequest = new
             {
                 email = normalizedEmail,
@@ -62,24 +60,10 @@ namespace ParkMitra_BE.Services
                 }
             };
 
-            var json = JsonSerializer.Serialize(signupRequest);
-
-            var content = new StringContent(
-                json,
-                Encoding.UTF8,
-                "application/json"
-            );
-
-            _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", serviceRoleKey);
-            _httpClient.DefaultRequestHeaders.Add("apikey", serviceRoleKey);
-
-            var response = await _httpClient.PostAsync(
-                $"{supabaseUrl}/auth/v1/signup", content
-            );
-
+            var response = await _supabaseAuthClient.RegisterAuthUserAsync(signupRequest);
+            
             var responseContent = await response.Content.ReadAsStringAsync();
-
+            
             if (!response.IsSuccessStatusCode)
             {
                 return new SignupResponseDto
@@ -98,9 +82,6 @@ namespace ParkMitra_BE.Services
 
         public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request)
         {
-            var supabaseUrl = _configuration["Supabase:Url"];
-            var serviceRoleKey = _configuration["Supabase:ServiceRoleKey"];
-
             var normalizedEmail = request.Email.Trim().ToLowerInvariant();
 
             var loginRequest = new
@@ -109,17 +90,7 @@ namespace ParkMitra_BE.Services
                 password = request.Password
             };
 
-            var json = JsonSerializer.Serialize(loginRequest);
-
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Add("apikey", serviceRoleKey);
-
-            var response = await _httpClient.PostAsync(
-                $"{supabaseUrl}/auth/v1/token?grant_type=password",
-                content
-            );
+            var response = await _supabaseAuthClient.AuthenticatePasswordUserAsync(loginRequest);
 
             var responseContent = await response.Content.ReadAsStringAsync();
 
@@ -175,8 +146,8 @@ namespace ParkMitra_BE.Services
             {
                 Success = true,
                 Message = "Login successful",
-                AccessToken = accessToken ?? "",
-                RefreshToken = refreshToken ?? "",
+                AccessToken = accessToken,
+                RefreshToken = refreshToken,
                 ExpiresIn = expiresIn,
             };
         }

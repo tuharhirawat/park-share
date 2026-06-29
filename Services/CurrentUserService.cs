@@ -1,47 +1,35 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using ParkMitra_BE.Data;
 using ParkMitra_BE.DTOs.Auth;
-using System.Net.Http.Headers;
+using ParkMitra_BE.Infrastructure.Clients;
 using System.Text.Json;
 
 namespace ParkMitra_BE.Services
 {
+    /// <summary>
+    /// Responsible for loading the authenticated user's information,
+    /// synchronizing the local profile, and initializing user records
+    /// when they do not already exist.
+    /// </summary>
     public class CurrentUserService
     {
-        private readonly HttpClient _httpClient;
-        private readonly IConfiguration _configuration;
+        private readonly ISupabaseAuthClient _supabaseAuthClient;
         private readonly ApplicationDbContext _context;
         private readonly UserInitializationService _userInitializationService;
 
         public CurrentUserService(
-            IHttpClientFactory httpClientFactory,
-            IConfiguration configuration,
+            ISupabaseAuthClient supabaseAuthClient,
             ApplicationDbContext context,
             UserInitializationService userInitializationService)
         {
-            _httpClient = httpClientFactory.CreateClient();
-            _configuration = configuration;
+            _supabaseAuthClient = supabaseAuthClient;
             _context = context;
             _userInitializationService = userInitializationService;
         }
 
         public async Task<MeResponseDto?> GetCurrentUserAsync(string accessToken)
         {
-            var supabaseUrl = _configuration["Supabase:Url"];
-            var anonKey = _configuration["Supabase:AnonKey"];
-
-            _httpClient.DefaultRequestHeaders.Clear();
-
-            _httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue(
-                    "Bearer",
-                    accessToken);
-
-            _httpClient.DefaultRequestHeaders.Add(
-                "apikey",
-                anonKey);
-
-            var response = await _httpClient.GetAsync($"{supabaseUrl}/auth/v1/user");
+            var response = await _supabaseAuthClient.GetAuthenticatedUserAsync(accessToken);
 
             if (!response.IsSuccessStatusCode)
                 return null;

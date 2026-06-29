@@ -1,7 +1,10 @@
-﻿namespace ParkMitra_BE.Services
+namespace ParkMitra_BE.Services
 {
     public class CookieService
     {
+        private const string AccessTokenCookieName = "access_token";
+        private const string RefreshTokenCookieName = "refresh_token";
+
         public void SetAuthCookies(
             HttpResponse response,
             string accessToken,
@@ -9,7 +12,7 @@
             int expiresIn)
         {
             response.Cookies.Append(
-                "access_token",
+                AccessTokenCookieName,
                 accessToken,
                 new CookieOptions
                 {
@@ -20,7 +23,7 @@
                 });
 
             response.Cookies.Append(
-                "refresh_token",
+                RefreshTokenCookieName,
                 refreshToken,
                 new CookieOptions
                 {
@@ -33,8 +36,8 @@
 
         public void ClearAuthCookies(HttpResponse response)
         {
-            response.Cookies.Delete("access_token");
-            response.Cookies.Delete("refresh_token");
+            response.Cookies.Delete(AccessTokenCookieName);
+            response.Cookies.Delete(RefreshTokenCookieName);
         }
     }
 }
