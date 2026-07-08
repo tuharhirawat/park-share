@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using ParkMitra_BE.Data;
 using ParkMitra_BE.DTOs.Auth;
+using ParkMitra_BE.DTOs.Auth.ThirdParty;
 using ParkMitra_BE.Infrastructure.Clients;
 using System.Text.Json;
 
@@ -13,12 +14,12 @@ namespace ParkMitra_BE.Services
     /// </summary>
     public class CurrentUserService
     {
-        private readonly ISupabaseAuthClient _supabaseAuthClient;
+        private readonly IAuthProviderClient _supabaseAuthClient;
         private readonly ApplicationDbContext _context;
         private readonly UserInitializationService _userInitializationService;
 
         public CurrentUserService(
-            ISupabaseAuthClient supabaseAuthClient,
+            IAuthProviderClient supabaseAuthClient,
             ApplicationDbContext context,
             UserInitializationService userInitializationService)
         {
@@ -29,23 +30,19 @@ namespace ParkMitra_BE.Services
 
         public async Task<MeResponseDto?> GetCurrentUserAsync(string accessToken)
         {
-            var response = await _supabaseAuthClient.GetAuthenticatedUserAsync(accessToken);
+            var root = await LoadAuthenticatedUserAsync(accessToken);
 
-            if (!response.IsSuccessStatusCode)
+            if (root == null)
                 return null;
 
-            var json = await response.Content.ReadAsStringAsync();
+            var authenticatedUser = root.Value;
 
-            using var document = JsonDocument.Parse(json);
-
-            var root = document.RootElement;
-
-            var authEmail = root.GetProperty("email").GetString() ?? string.Empty;
+            var authEmail = authenticatedUser.GetProperty("email").GetString() ?? string.Empty;
 
             string fullName = string.Empty;
             string? mobileNumber = null;
 
-            if (root.TryGetProperty("user_metadata", out var metadata))
+            if (authenticatedUser.TryGetProperty("user_metadata", out var metadata))
             {
                 if (metadata.TryGetProperty("full_name", out var fullNameElement))
                 {
@@ -62,12 +59,12 @@ namespace ParkMitra_BE.Services
                 }
             }
 
-            var userId = Guid.Parse(root.GetProperty("id").GetString()!);
+            var userId = Guid.Parse(authenticatedUser.GetProperty("id").GetString()!);
 
             var hasGoogleProvider = false;
             var hasEmailProvider = false;
 
-            if (root.TryGetProperty("identities", out var identities))
+            if (authenticatedUser.TryGetProperty("identities", out var identities))
             {
                 foreach (var identity in identities.EnumerateArray())
                 {
@@ -133,6 +130,67 @@ namespace ParkMitra_BE.Services
                 HasEmailProvider = hasEmailProvider,
                 CanChangeEmail = canChangeEmail,
             };
+        }
+
+        public async Task<ThirdPartyIdentityDto?> GetThirdPartyUserAsync(string accessToken, string provider)
+        {
+            var root = await LoadAuthenticatedUserAsync(accessToken);
+
+            if (root == null)
+                return null;
+
+            var authenticatedUser = root.Value;
+
+            var userId = Guid.Parse(authenticatedUser.GetProperty("id").GetString()!);
+            var email = authenticatedUser   .GetProperty("email").GetString() ?? string.Empty;
+            var fullName = string.Empty;
+
+            if (authenticatedUser.TryGetProperty("user_metadata", out var metadata))
+            {
+                if (metadata.TryGetProperty("full_name", out var fn))
+                    fullName = fn.GetString() ?? string.Empty;
+                else if (metadata.TryGetProperty("name", out var n))
+                    fullName = n.GetString() ?? string.Empty;
+            }
+
+            string? providerUserId = null;
+
+            if (authenticatedUser.TryGetProperty("identities", out var identities))
+            {
+                foreach (var identity in identities.EnumerateArray())
+                {
+                    if (identity.TryGetProperty("provider", out var p) &&
+                        p.GetString() == provider &&
+                        identity.TryGetProperty("id", out var idProp))
+                    {
+                        providerUserId = idProp.GetString();
+                        break;
+                    }
+                }
+            }
+
+            return new ThirdPartyIdentityDto
+            {
+                UserId = userId,
+                Email = email,
+                FullName = fullName,
+                ProviderUserId = providerUserId
+            };
+        }
+
+        // Private Helper Method
+        private async Task<JsonElement?> LoadAuthenticatedUserAsync(string accessToken)
+        {
+            var response = await _supabaseAuthClient.GetAuthenticatedUserAsync(accessToken);
+
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var json = await response.Content.ReadAsStringAsync();
+
+            using var document = JsonDocument.Parse(json);
+
+            return document.RootElement.Clone();
         }
     }
 }

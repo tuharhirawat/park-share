@@ -3,16 +3,20 @@ using Npgsql;
 using ParkMitra_BE.Data;
 using ParkMitra_BE.Models;
 using ParkMitra_BE.Enums;
+using ParkMitra_BE.Infrastructure.Clients;
+using System.Text.Json;
 
 namespace ParkMitra_BE.Services
 {
     public class UserInitializationService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IAuthProviderClient _supabaseAuthClient;
 
-        public UserInitializationService(ApplicationDbContext context)
+        public UserInitializationService(ApplicationDbContext context, IAuthProviderClient supabaseAuthClient)
         {
             _context = context;
+            _supabaseAuthClient = supabaseAuthClient;
         }
 
         /// <summary>
@@ -118,6 +122,72 @@ namespace ParkMitra_BE.Services
                 await transaction.RollbackAsync();
                 return false;
             }
+        }
+
+        public async Task<user_auth_provider?> FindProviderAsync(
+            AuthProvider provider,
+            string providerUserId)
+        {
+            return await _context.user_auth_providers
+                .FirstOrDefaultAsync(x =>
+                    x.provider == provider &&
+                    x.provider_user_id == providerUserId);
+        }
+
+        public async Task LinkProviderAsync(
+            Guid userId,
+            AuthProvider provider,
+            string providerUserId)
+        {
+            var existing = await FindProviderAsync(provider, providerUserId);
+
+            if (existing != null)
+                return;
+
+            _context.user_auth_providers.Add(new user_auth_provider
+            {
+                id = Guid.NewGuid(),
+                user_id = userId,
+                provider = provider,
+                provider_user_id = providerUserId,
+                created_at = DateTime.UtcNow,
+                updated_at = DateTime.UtcNow
+            });
+
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<Guid> EnsureThirdPartyUserAsync(
+            Guid userId,
+            AuthProvider provider,
+            string providerUserId,
+            string email,
+            string fullName)
+        {
+            var existingProviderLink = await FindProviderAsync(provider, providerUserId);
+
+            if (existingProviderLink != null)
+                return existingProviderLink.user_id;
+
+            var existingProfile = await _context.profiles
+                .FirstOrDefaultAsync(p => p.user_id == userId);
+
+            if (existingProfile == null)
+            {
+                var initialized = await InitializeNewUserAsync(
+                    userId,
+                    fullName,
+                    null,
+                    email);
+
+                if (!initialized)
+                    throw new InvalidOperationException(
+                        "Failed to initialize application user.");
+            }
+
+            await LinkProviderAsync(userId, provider, providerUserId);
+
+            return userId;
         }
     }
 }

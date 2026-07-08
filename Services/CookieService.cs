@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Http;
+
 namespace ParkMitra_BE.Services
 {
     public class CookieService
@@ -11,14 +13,16 @@ namespace ParkMitra_BE.Services
             string refreshToken,
             int expiresIn)
         {
+            var isHttps = response.HttpContext.Request.IsHttps;
+
             response.Cookies.Append(
                 AccessTokenCookieName,
                 accessToken,
                 new CookieOptions
                 {
                     HttpOnly = true,
-                    Secure = false,  // TODO: should we true when deployed
-                    SameSite = SameSiteMode.Lax,
+                    Secure = isHttps,
+                    SameSite = isHttps ? SameSiteMode.None : SameSiteMode.Lax,
                     Expires = DateTimeOffset.UtcNow.AddSeconds(expiresIn)
                 });
 
@@ -28,8 +32,8 @@ namespace ParkMitra_BE.Services
                 new CookieOptions
                 {
                     HttpOnly = true,
-                    Secure = false,  // TODO: should we true when deployed
-                    SameSite = SameSiteMode.Lax,
+                    Secure = isHttps,
+                    SameSite = isHttps ? SameSiteMode.None : SameSiteMode.Lax,
                     Expires = DateTimeOffset.UtcNow.AddDays(30)
                 });
         }

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ParkMitra_BE.Data;
 using ParkMitra_BE.Infrastructure.Clients;
 using ParkMitra_BE.Services;
+using ParkMitra_BE.Services.Auth;
 
 namespace ParkMitra_BE;
 
@@ -23,7 +24,7 @@ public class Program
 
         // Business Services
         builder.Services.AddScoped<AuthService>();
-        builder.Services.AddScoped<GoogleAuthService>();
+        builder.Services.AddScoped<ThirdPartyAuthService>();
         builder.Services.AddScoped<CookieService>();
         builder.Services.AddScoped<CurrentUserService>();
         builder.Services.AddScoped<UserInitializationService>();
@@ -32,8 +33,11 @@ public class Program
         builder.Services.AddScoped<ParkingSpaceService>();
         builder.Services.AddScoped<BookingService>();
 
+        builder.Services.AddMemoryCache();
+        builder.Services.AddSingleton<ICodeVerifierStore, MemoryCodeVerifierStore>();
+
         // Infrastructure Clients
-        builder.Services.AddScoped<ISupabaseAuthClient, SupabaseAuthClient>();
+        builder.Services.AddScoped<IAuthProviderClient, SupabaseAuthClient>();
 
         // Http Clients
         builder.Services.AddHttpClient();

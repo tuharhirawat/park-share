@@ -15,6 +15,8 @@ public partial class ApplicationDbContext : DbContext
     {
     }
 
+    public virtual DbSet<user_auth_provider> user_auth_providers { get; set; }
+
     public virtual DbSet<booking> bookings { get; set; }
 
     public virtual DbSet<contact_message> contact_messages { get; set; }
@@ -61,6 +63,16 @@ public partial class ApplicationDbContext : DbContext
             .HasPostgresExtension("extensions", "uuid-ossp")
             .HasPostgresExtension("btree_gist")
             .HasPostgresExtension("vault", "supabase_vault");
+
+        modelBuilder.Entity<user_auth_provider>(entity =>
+        {
+            entity.HasKey(e => e.id);
+
+            entity.Property(e => e.provider)
+                  .HasConversion(
+                      v => v.ToString(),
+                      v => Enum.Parse<AuthProvider>(v));
+        });
 
         modelBuilder.Entity<booking>(entity =>
         {

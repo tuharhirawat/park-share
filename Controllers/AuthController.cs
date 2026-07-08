@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using ParkMitra_BE.DTOs;
 using ParkMitra_BE.DTOs.Auth;
+using ParkMitra_BE.DTOs.Auth.EmailAuth;
 using ParkMitra_BE.Services;
 
 namespace ParkMitra_BE.Controllers

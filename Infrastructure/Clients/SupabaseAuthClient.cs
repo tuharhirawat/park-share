@@ -5,13 +5,19 @@ using System.Text.Json;
 namespace ParkMitra_BE.Infrastructure.Clients;
 
 /// <summary>
-/// Handles all communication with Supabase Authentication APIs.
+/// Client responsible for communicating with Supabase Authentication APIs.
 ///
-/// This class is responsible only for making authenticated HTTP requests.
-/// It intentionally contains no business logic. Parsing responses and
-/// applying business rules belong to the calling services.
+/// This class only performs HTTP requests to Supabase Auth.
+/// It does not contain authentication, validation, or business logic.
+///
+/// Responsibilities:
+/// - Configure authentication headers
+/// - Build Supabase Auth URLs
+/// - Send requests to Supabase Authentication endpoints
+///
+/// Response parsing and business decisions are handled by the calling services.
 /// </summary>
-public class SupabaseAuthClient : ISupabaseAuthClient
+public class SupabaseAuthClient : IAuthProviderClient
 {
     private readonly HttpClient _httpClient;
     private readonly IConfiguration _configuration;
@@ -104,6 +110,56 @@ public class SupabaseAuthClient : ISupabaseAuthClient
 
         return _httpClient.PutAsync(
             BuildAuthUrl("/auth/v1/user"),
+            content);
+    }
+
+    public Task<HttpResponseMessage> RegisterAuthUserByAdminAsync(object request)
+    {
+        ConfigureHeaders(useServiceRole: true);
+
+        var content = new StringContent(
+            JsonSerializer.Serialize(request),
+            Encoding.UTF8,
+            "application/json");
+
+        return _httpClient.PostAsync(
+            BuildAuthUrl("/auth/v1/admin/users"),
+            content);
+    }
+
+    //public Task<HttpResponseMessage> SignInWithIdTokenAsync(object request)
+    //{
+    //    ConfigureHeaders();
+
+    //    var content = new StringContent(
+    //        JsonSerializer.Serialize(request),
+    //        Encoding.UTF8,
+    //        "application/json");
+
+    //    return _httpClient.PostAsync(
+    //        BuildAuthUrl("/auth/v1/token?grant_type=id_token"),
+    //        content);
+    //}
+
+    public string BuildAuthorizeUrl(string provider, string codeChallenge, string redirectTo)
+    {
+        return BuildAuthUrl(
+            $"/auth/v1/authorize?provider={provider}" +
+            $"&code_challenge={codeChallenge}&code_challenge_method=s256" +
+            $"&redirect_to={Uri.EscapeDataString(redirectTo)}");
+    }
+
+    public Task<HttpResponseMessage> ExchangeOAuthCodeAsync(string authCode, string codeVerifier)
+    {
+        ConfigureHeaders();
+
+        var content = new StringContent(
+            JsonSerializer.Serialize(new { auth_code = authCode, code_verifier = codeVerifier }),
+            Encoding.UTF8,
+            "application/json");
+
+        return _httpClient.PostAsync(
+            BuildAuthUrl("/auth/v1/token?grant_type=pkce"),
             content);
     }
 }

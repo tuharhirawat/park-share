@@ -15,9 +15,9 @@ namespace ParkMitra_BE.Services
     public class ProfileService
     {
         private readonly ApplicationDbContext _context;
-        private readonly ISupabaseAuthClient _supabaseAuthClient;
+        private readonly IAuthProviderClient _supabaseAuthClient;
 
-        public ProfileService(ApplicationDbContext context, ISupabaseAuthClient supabaseAuthClient)
+        public ProfileService(ApplicationDbContext context, IAuthProviderClient supabaseAuthClient)
         {
             _context = context;
             _supabaseAuthClient = supabaseAuthClient;

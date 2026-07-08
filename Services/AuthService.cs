@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using ParkMitra_BE.Data;
 using ParkMitra_BE.DTOs.Auth;
+using ParkMitra_BE.DTOs.Auth.EmailAuth;
 using ParkMitra_BE.Infrastructure.Clients;
 using System.Text.Json;
 
@@ -13,12 +14,12 @@ namespace ParkMitra_BE.Services
     /// </summary>
     public class AuthService
     {
-        private readonly ISupabaseAuthClient _supabaseAuthClient;
+        private readonly IAuthProviderClient _supabaseAuthClient;
         private readonly ApplicationDbContext _context;
         private readonly CurrentUserService _currentUserService;
 
         public AuthService(
-            ISupabaseAuthClient supabaseAuthClient,
+            IAuthProviderClient supabaseAuthClient,
             ApplicationDbContext context,
             CurrentUserService currentUserService)
         {
@@ -80,7 +81,7 @@ namespace ParkMitra_BE.Services
             };
         }
 
-        public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request)
+        public async Task<AuthenticationResponseDto> LoginAsync(LoginRequestDto request)
         {
             var normalizedEmail = request.Email.Trim().ToLowerInvariant();
 
@@ -98,7 +99,7 @@ namespace ParkMitra_BE.Services
             {
                 if (responseContent.Contains("Email not confirmed"))
                 {
-                    return new LoginResponseDto
+                    return new AuthenticationResponseDto
                     {
                         Success = false,
                         Message = "Please verify your email before logging in."
@@ -107,14 +108,14 @@ namespace ParkMitra_BE.Services
 
                 if (responseContent.Contains("Invalid login credentials"))
                 {
-                    return new LoginResponseDto
+                    return new AuthenticationResponseDto
                     {
                         Success = false,
                         Message = "Invalid email or password."
                     };
                 }
 
-                return new LoginResponseDto
+                return new AuthenticationResponseDto
                 {
                     Success = false,
                     Message = "Unable to log in. Please try again."
@@ -135,14 +136,14 @@ namespace ParkMitra_BE.Services
 
             if (currentUser == null)
             {
-                return new LoginResponseDto
+                return new AuthenticationResponseDto
                 {
                     Success = false,
                     Message = "Unable to initialize your account. Please try again."
                 };
             }
 
-            return new LoginResponseDto
+            return new AuthenticationResponseDto
             {
                 Success = true,
                 Message = "Login successful",
