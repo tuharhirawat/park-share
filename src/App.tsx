@@ -24,6 +24,7 @@ import Contact from "@/pages/Contact.jsx";
 import Terms from "@/pages/Terms.tsx";
 import Privacy from "@/pages/Privacy.jsx";
 import HostListingHub from "./pages/HostListingHub.tsx";
+import AuthCallback from "./components/AuthCallback.tsx";
 
 const queryClient = new QueryClient();
 validateAuthConfig();
@@ -40,8 +41,8 @@ const App = () => (
               <Route element={<MainLayout />}>
                 <Route path="/" element={<Index />} />
                 <Route path="/search" element={<SearchPage />} />
-                <Route path="/space/:id" element={ <SpaceDetail /> }
-                />
+                <Route path="/space/:id" element={<SpaceDetail />} />
+                <Route path="/auth/callback" element={<AuthCallback />} />
                 <Route
                   path="/host/host-listing"
                   element={

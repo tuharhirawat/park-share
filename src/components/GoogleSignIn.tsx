@@ -1,7 +1,6 @@
-import { Button } from "./ui/button";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 import { useState } from "react";
+import { Button } from "./ui/button";
+import api from "@/services/api";
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" className="w-5 h-5 mr-2">
@@ -18,43 +17,29 @@ const GoogleIcon = () => (
       fill="#FBBC05"
     />
     <path
-      d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 12-4.53z"
+      d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
       fill="#EA4335"
     />
   </svg>
 );
 
+interface GoogleSignInProps {
+  text?: string;
+}
+
 export const GoogleSignIn = ({
   text = "Continue with Google",
-  redirectTo,
-}: {
-  text?: string;
-  redirectTo?: string;
-}) => {
+}: GoogleSignInProps) => {
   const [loading, setLoading] = useState(false);
 
-  const handleGoogleSignIn = async () => {
-      setLoading(true);
+  const handleGoogleSignIn = () => {
+    if (loading) return;
 
-      try {
+    setLoading(true);
 
-        const { error } = await supabase.auth.signInWithOAuth({
-            provider: "google",
-            options: {
-              redirectTo: redirectTo || window.location.href,
-            },
-          });
-
-        if (error) {
-          toast.error(error.message);
-        }
-        
-      } catch {
-        toast.error("An unexpected error occurred during Google sign-in.");
-      } finally {
-        setLoading(false);
-      }
-    };
+    window.location.href =
+      `${api.defaults.baseURL}/thirdpartyauth/google/login`;
+  };
 
   return (
     <Button
