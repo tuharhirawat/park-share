@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase } from "@/integrations/supabase/client";
+import api from "@/services/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Car, Bike, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -29,15 +29,15 @@ import {
 
 interface Vehicle {
   id: string;
-  vehicle_type: string;
-  brand_model: string;
-  registration_number: string;
+  vehicleType: string;
+  brandModel: string;
+  registrationNumber: string;
 }
 
 const vehicleSchema = z.object({
-  vehicle_type: z.enum(["car", "bike"], { required_error: "Select a vehicle type" }),
-  brand_model: z.string().trim().min(2, "Brand/model must be at least 2 characters").max(100),
-  registration_number: z
+  vehicleType: z.enum(["Car", "Bike"], { required_error: "Select a vehicle type" }),
+  brandModel: z.string().trim().min(2, "Brand/model must be at least 2 characters").max(100),
+  registrationNumber: z
     .string()
     .trim()
     .min(4, "Registration number must be at least 4 characters")
@@ -67,7 +67,7 @@ const VehiclesPage = () => {
 
   const form = useForm<VehicleForm>({
     resolver: zodResolver(vehicleSchema),
-    defaultValues: { vehicle_type: undefined, brand_model: "", registration_number: "" },
+    defaultValues: { vehicleType: undefined, brandModel: "", registrationNumber: "" },
   });
 
   useEffect(() => {
@@ -75,80 +75,74 @@ const VehiclesPage = () => {
   }, [user, authLoading, navigate]);
 
   const fetchVehicles = useCallback(async () => {
-    if (!user) return;
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("vehicles")
-      .select("id, vehicle_type, brand_model, registration_number")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
+    try {
+      const response = await api.get("/Vehicle/GetVehicles");
 
-    if (error) toast.error("Failed to load vehicles");
-    else setVehicles((data as Vehicle[]) || []);
-    setLoading(false);
-  }, [user]);
+      setVehicles(response.data);
+    } catch {
+      toast.error("Failed to load vehicles");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (user) fetchVehicles();
   }, [user, fetchVehicles]);
 
   const onAdd = async (values: VehicleForm) => {
-    if (!user) return;
     setAdding(true);
 
-    const normalizedReg = values.registration_number
+    const normalizedReg = values.registrationNumber
       .replace(/\s+/g, "")
       .replace(/-/g, "")
       .toUpperCase();
 
-    const alreadyExists = vehicles.some(
-      (v) =>
-        v.registration_number.replace(/\s+/g, "").replace(/-/g, "").toUpperCase() === normalizedReg
-    );
-
-    if (alreadyExists) {
-      form.setError("registration_number", {
-        message: "Vehicle with this registration already exists",
+    try {
+      const response = await api.post("/Vehicle/AddVehicle", {
+        vehicleType: values.vehicleType,
+        brandModel: values.brandModel,
+        registrationNumber: normalizedReg,
       });
-      setAdding(false);
-      return;
-    }
 
-    const { error } = await supabase.from("vehicles").insert({
-      user_id: user.id,
-      vehicle_type: values.vehicle_type,
-      brand_model: values.brand_model,
-      registration_number: normalizedReg,
-    });
-    setAdding(false);
-
-    if (error) {
-
-      if (error.message.includes("idx_vehicles_reg_unique") || error.code === "23505") {
-        form.setError("registration_number", { message: "This registration number is already registered" });
-      } else {
-        toast.error(error.message);
-      }
-
-    } else {
-      toast.success("Vehicle added!");
+      toast.success(response.data.message);
+      
+      await fetchVehicles();
       form.reset();
       setDialogOpen(false);
-      fetchVehicles();
     }
-  };
+    catch (error: any) {
+      if (error.response?.data?.message) {
+        if (error.response.data.message.includes("registration")) {
+          form.setError("registrationNumber", {
+            message: error.response.data.message,
+          });
+        } else {
+          toast.error(error.response.data.message);
+        }
+      }
+    }
+    finally {
+      setAdding(false);
+    }
+  }
 
   const onDelete = async (id: string) => {
     setDeleting(id);
 
-    const { error } = await supabase.from("vehicles").delete().eq("id", id);
-    setDeleting(null);
-    
-    if (error) toast.error("Failed to delete vehicle");
-    else {
-      toast.success("Vehicle removed");
-      setVehicles((prev) => prev.filter((v) => v.id !== id));
+    try {
+      const response = await api.delete(`/Vehicle/DeleteVehicle/${id}`);
+      toast.success(response.data.message);
+      setVehicles(prev =>
+        prev.filter(v => v.id !== id));
+    }
+    catch {
+      toast.error("Failed to delete vehicle");
+    }
+    finally {
+      setDeleting(null);
     }
   };
 
@@ -174,7 +168,7 @@ const VehiclesPage = () => {
                 <DialogHeader><DialogTitle>Add a Vehicle</DialogTitle></DialogHeader>
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(onAdd)} className="space-y-4">
-                    <FormField control={form.control} name="vehicle_type" render={({ field }) => (
+                    <FormField control={form.control} name="vehicleType" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Vehicle Type</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value}>
@@ -182,21 +176,21 @@ const VehiclesPage = () => {
                             <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="car">Car</SelectItem>
-                            <SelectItem value="bike">Bike</SelectItem>
+                            <SelectItem value="Car">Car</SelectItem>
+                            <SelectItem value="Bike">Bike</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
                       </FormItem>
                     )} />
-                    <FormField control={form.control} name="brand_model" render={({ field }) => (
+                    <FormField control={form.control} name="brandModel" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Brand / Model</FormLabel>
                         <FormControl><Input placeholder="e.g., Honda City, KTM Duke" {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )} />
-                    <FormField control={form.control} name="registration_number" render={({ field }) => (
+                    <FormField control={form.control} name="registrationNumber" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Registration Number</FormLabel>
                         <FormControl><Input placeholder="e.g., MH 12 AB 1234" {...field} /></FormControl>
@@ -225,13 +219,13 @@ const VehiclesPage = () => {
                   <CardContent className="flex items-center justify-between py-4">
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                        {v.vehicle_type === "bike" ? <Bike className="w-5 h-5 text-primary" /> : <Car className="w-5 h-5 text-primary" />}
+                        {v.vehicleType === "Bike" ? <Bike className="w-5 h-5 text-primary" /> : <Car className="w-5 h-5 text-primary" />}
                       </div>
                       <div>
-                        <p className="font-semibold text-foreground">{v.brand_model}</p>
+                        <p className="font-semibold text-foreground">{v.brandModel}</p>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <Badge variant="secondary" className="text-xs capitalize">{v.vehicle_type}</Badge>
-                          <span className="text-sm text-muted-foreground font-mono">{formatRegistration(v.registration_number)}</span>
+                          <Badge variant="secondary" className="text-xs capitalize">{v.vehicleType}</Badge>
+                          <span className="text-sm text-muted-foreground font-mono">{formatRegistration(v.registrationNumber)}</span>
                         </div>
                       </div>
                     </div>
