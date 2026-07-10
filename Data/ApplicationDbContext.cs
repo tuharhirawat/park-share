@@ -341,6 +341,11 @@ public partial class ApplicationDbContext : DbContext
             entity.Property(e => e.brand_model).HasDefaultValueSql("''::text");
             entity.Property(e => e.created_at).HasDefaultValueSql("now()");
             entity.Property(e => e.updated_at).HasDefaultValueSql("now()");
+
+             entity.Property(e => e.vehicle_type)
+                   .HasConversion(
+                        v => v.ToString().ToLower(),
+                        v => Enum.Parse<VehicleType>(v, true));
         });
 
         OnModelCreatingPartial(modelBuilder);

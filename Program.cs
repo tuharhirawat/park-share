@@ -3,6 +3,7 @@ using ParkMitra_BE.Data;
 using ParkMitra_BE.Infrastructure.Clients;
 using ParkMitra_BE.Services;
 using ParkMitra_BE.Services.Auth;
+using System.Text.Json.Serialization;
 
 namespace ParkMitra_BE;
 
@@ -14,7 +15,11 @@ public class Program
 
         builder.Configuration.AddJsonFile("appsettings.local.json", optional: true, reloadOnChange: true);
 
-        builder.Services.AddControllers();
+        builder.Services.AddControllers()
+            .AddJsonOptions(options =>
+            {
+                options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+            });
 
         builder.Services.AddDbContext<ApplicationDbContext>(options =>
             options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -32,6 +37,7 @@ public class Program
         builder.Services.AddScoped<HostService>();
         builder.Services.AddScoped<ParkingSpaceService>();
         builder.Services.AddScoped<BookingService>();
+        builder.Services.AddScoped<VehicleService>();
 
         builder.Services.AddMemoryCache();
         builder.Services.AddSingleton<ICodeVerifierStore, MemoryCodeVerifierStore>();

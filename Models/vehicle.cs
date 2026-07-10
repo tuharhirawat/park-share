@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ParkMitra_BE.Enums;
+using System;
 using System.Collections.Generic;
 
 namespace ParkMitra_BE.Models;
@@ -9,7 +10,7 @@ public partial class vehicle
 
     public Guid user_id { get; set; }
 
-    public string vehicle_type { get; set; } = null!;
+    public VehicleType vehicle_type { get; set; }
 
     public string brand_model { get; set; } = null!;
 
