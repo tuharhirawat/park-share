@@ -7,13 +7,12 @@ import { toast } from "sonner";
 import { Car, Bike, MapPin, IndianRupee, Shield, Clock, ImagePlus, X, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import api from "@/services/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Dialog, DialogContent, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import HostOnboardingModal from "@/components/HostOnboardingModal";
 import MapWithSearch, { type MapWithSearchHandle } from "@/components/MapWithSearch";
 import { getLoginRoute } from "@/config/authConfig";
 
@@ -45,10 +44,6 @@ const listingSchema = z.object({
 
 type ListingForm = z.infer<typeof listingSchema>;
 
-const generateSlotLabels = (count: number, prefix: string): string[] => {
-  return Array.from({ length: count }, (_, i) => `${prefix}-${i + 1}`);
-};
-
 type Props = {
   editSpace?: any;
 };
@@ -74,7 +69,6 @@ const HostListingPage = ({ editSpace }: Props) => {
     address: undefined,
   });
   const [pendingLocation, setPendingLocation] = useState<{ lat: number; lng: number; address: string } | null>(null);
-  const [isHost, setIsHost] = useState<boolean | null>(null);
   const [hostModalOpen, setHostModalOpen] = useState(false);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
 
@@ -104,20 +98,8 @@ const HostListingPage = ({ editSpace }: Props) => {
       return;
     }
 
-    if (user) {
-      supabase
-        .from("profiles")
-        .select("is_host")
-        .eq("user_id", user.id)
-        .maybeSingle()
-        .then(({ data }) => {
-          const hostStatus = data?.is_host ?? false;
-          setIsHost(hostStatus);
-
-          if (!hostStatus) {
-            setHostModalOpen(true);
-          }
-        });
+    if (user && !user.isHost) {
+      setHostModalOpen(true);
     }
   }, [user, loading, navigate]);
 
@@ -253,12 +235,12 @@ const HostListingPage = ({ editSpace }: Props) => {
     const urls: string[] = [];
 
     for (const file of images) {
-      const ext = file.name.split(".").pop();
-      const path = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage.from("parking-images").upload(path, file);
-      if (error) throw error;
-      const { data } = supabase.storage.from("parking-images").getPublicUrl(path);
-      urls.push(data.publicUrl);
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await api.post("/ImageUpload/UploadListingImage", formData);
+
+      urls.push(response.data.url);
     }
 
     return urls;
@@ -277,117 +259,35 @@ const HostListingPage = ({ editSpace }: Props) => {
 
     try {
       const imageUrls = await uploadImages();
-      const finalImages = [
-        ...existingImages,
-        ...imageUrls
-      ];
+      const finalImages = [...existingImages, ...imageUrls];
       const carSlots = parseInt(values.carSlots);
       const bikeSlots = parseInt(values.bikeSlots);
-      const vehicle_types = [
-        ...(carSlots > 0 ? ["car"] : []),
-        ...(bikeSlots > 0 ? ["bike"] : [])
-      ];
 
       if (carSlots === 0 && bikeSlots === 0) {
         toast.error("At least 1 slot is required");
         return;
       }
 
-      let spaceId;
+      const payload = {
+        title: values.title,
+        address: values.address,
+        city: values.city,
+        pricePerHour: parseFloat(values.pricePerHour),
+        pricePerDay: values.pricePerDay ? parseFloat(values.pricePerDay) : null,
+        description: values.description || null,
+        carSlots,
+        bikeSlots,
+        features,
+        imageUrls: finalImages,
+        lat: location.lat,
+        lng: location.lng,
+      };
 
-      if (editSpace) {
-        const { error } =
-          await supabase
-            .from("parking_spaces")
-            .update({
-              title: values.title,
-              address: values.address,
-              city: values.city,
-              listing_status: "pending",
-              reviewed_by: null,
-              reviewed_at: null,
-              rejection_reason: null,
-              price_per_hour: parseFloat(
-                values.pricePerHour
-              ),
-              price_per_day: values.pricePerDay
-                ? parseFloat(values.pricePerDay)
-                : null,
-              vehicle_types,
-              features,
-              description: values.description || null,
-              image_urls: finalImages,
-              lat: location.lat,
-              lng: location.lng
-            })
-            .eq("id", editSpace.id);
+      const response = editSpace
+        ? await api.put(`/ParkingSpace/${editSpace.id}/Update`, payload)
+        : await api.post("/ParkingSpace/Create", payload);
 
-        if (error) throw error;
-
-        spaceId = editSpace.id;
-      }
-      else {
-        const { data: spaceData, error } = await supabase
-          .from("parking_spaces")
-          .insert({
-            user_id: user.id,
-            title: values.title,
-            address: values.address,
-            city: values.city,
-            listing_status: "pending",
-            price_per_hour: parseFloat(
-              values.pricePerHour
-            ),
-            price_per_day: values.pricePerDay
-              ? parseFloat(values.pricePerDay)
-              : null,
-            vehicle_types,
-            features,
-            description: values.description || null,
-            image_urls: finalImages,
-            lat: location.lat,
-            lng: location.lng
-          })
-          .select("id")
-          .single();
-
-        if (error) throw error;
-
-        spaceId = spaceId;
-      }
-
-      if (editSpace) {
-        await supabase
-          .from("parking_slots")
-          .delete()
-          .eq("space_id", spaceId);
-      }
-
-      // Auto-generate labeled parking slots
-      const slotInserts: { space_id: string; label: string; vehicle_type: string }[] = [];
-      
-      if (carSlots > 0) {
-        generateSlotLabels(carSlots, "C").forEach(label => {
-          slotInserts.push({ space_id: spaceId, label, vehicle_type: "car" });
-        });
-      }
-      
-      if (bikeSlots > 0) {
-        generateSlotLabels(bikeSlots, "B").forEach(label => {
-          slotInserts.push({ space_id: spaceId, label, vehicle_type: "bike" });
-        });
-      }
-
-      if (slotInserts.length > 0) {
-        const { error: slotError } = await supabase.from("parking_slots").insert(slotInserts);
-        if (slotError) console.error("Slot creation error:", slotError);
-      }
-
-      toast.success(
-        editSpace
-          ? "Listing resubmitted for review"
-          : "Your parking space has been listed! 🎉"
-      );
+      toast.success(response.data.message);
       navigate("/host/dashboard");
     } catch (err: any) {
       toast.error(err.message || "Failed to create listing");
@@ -528,7 +428,7 @@ const HostListingPage = ({ editSpace }: Props) => {
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       Saving...
                     </>
-                    )
+                  )
                   : editSpace
                     ? "Reapply For Review"
                     : "Publish Listing"
@@ -567,7 +467,7 @@ const HostListingPage = ({ editSpace }: Props) => {
             >
               Cancel
             </button>
-            
+
             <button
               type="button"
               disabled={isFetchingLocation}

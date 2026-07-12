@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase } from "@/integrations/supabase/client";
+import api from "@/services/api";
 import HostListingPage from "@/components/host-listing/HostListingPage";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,48 +26,34 @@ const HostSpacesDashboard = () => {
   }, [user]);
 
   const loadSpaces = async () => {
-    const { data } = await supabase
-      .from("parking_spaces")
-      .select("*")
-      .eq("user_id", user?.id);
-
-    setSpaces(data || []);
+    try {
+      const response = await api.get("/ParkingSpace/MySpaces");
+      setSpaces(response.data);
+    } catch {
+      setSpaces([]);
+    }
   };
 
-  const handleReapply = async (space: any) => {
-
-    const { data: slots } = await supabase
-      .from("parking_slots")
-      .select("vehicle_type")
-      .eq("space_id", space.id);
-
-    const carSlots = slots?.filter(
-      x => x.vehicle_type === "car"
-    ).length || 0;
-
-    const bikeSlots = slots?.filter(
-      x => x.vehicle_type === "bike"
-    ).length || 0;
-
+  const handleReapply = (space: any) => {
     setEditingSpace({
       ...space,
-      carSlots,
-      bikeSlots
+      carSlots: space.carSlots,
+      bikeSlots: space.bikeSlots
     });
 
     setView("new-space");
   };
 
   const pending = spaces.filter(
-    x => x.listing_status === "pending"
+    x => x.listingStatus === "pending"
   );
 
   const completed = spaces.filter(
-    x => x.listing_status === "approved"
+    x => x.listingStatus === "approved"
   );
 
   const rejected = spaces.filter(
-    x => x.listing_status === "rejected"
+    x => x.listingStatus === "rejected"
   );
 
   const currentData =
@@ -96,7 +82,7 @@ const HostSpacesDashboard = () => {
                 </p>
               </div>
 
-              <Clock3 className="w-10 h-10 text-yellow-500 group-hover:scale-110 transition"/>
+              <Clock3 className="w-10 h-10 text-yellow-500 group-hover:scale-110 transition" />
             </div>
 
             <div className="text-3xl font-bold">
@@ -121,7 +107,7 @@ const HostSpacesDashboard = () => {
                 </p>
               </div>
 
-              <CheckCircle2 className="w-10 h-10 text-green-500 group-hover:scale-110 transition"/>
+              <CheckCircle2 className="w-10 h-10 text-green-500 group-hover:scale-110 transition" />
             </div>
 
             <div className="text-3xl font-bold">
@@ -146,7 +132,7 @@ const HostSpacesDashboard = () => {
                 </p>
               </div>
 
-              <CircleX className="w-10 h-10 text-red-500 group-hover:scale-110 transition"/>
+              <CircleX className="w-10 h-10 text-red-500 group-hover:scale-110 transition" />
             </div>
 
             <div className="text-3xl font-bold">
@@ -173,7 +159,7 @@ const HostSpacesDashboard = () => {
                 </p>
               </div>
 
-              <PlusCircle className="w-10 h-10 text-primary group-hover:scale-110 transition"/>
+              <PlusCircle className="w-10 h-10 text-primary group-hover:scale-110 transition" />
             </div>
           </CardContent>
         </Card>
@@ -205,7 +191,7 @@ const HostSpacesDashboard = () => {
               </p>
 
               {view === "rejected" &&
-                space.rejection_reason && (
+                space.rejectionReason && (
                   <div>
                     <div className="text-sm mb-4">
                       <span className="font-medium">
@@ -213,7 +199,7 @@ const HostSpacesDashboard = () => {
                       </span>
 
                       {" "}
-                      {space.rejection_reason}
+                      {space.rejectionReason}
 
                     </div>
 
@@ -238,7 +224,7 @@ const HostSpacesDashboard = () => {
           onClick={() => setView("home")}
           className="text-primary hover:underline"
         >
-          List-your-space
+          Spaces
         </button>
 
         {view !== "home" && (

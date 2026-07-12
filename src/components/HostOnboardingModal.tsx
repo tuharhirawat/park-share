@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import api from "@/services/api";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -21,7 +21,7 @@ interface Props {
 }
 
 const HostOnboardingModal = ({ open, onOpenChange }: Props) => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -32,60 +32,14 @@ const HostOnboardingModal = ({ open, onOpenChange }: Props) => {
     setLoading(true);
 
     try {
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select(
-          "mobile_number,is_phone_verified"
-        )
-        .eq("user_id", user.id)
-        .single();
+      const response = await api.post("/Host/BecomeHost");
 
-      if (error) throw error;
-
-      if (!profile.mobile_number?.trim()) {
-        toast.error("Please add your mobile number before becoming a host");
-        return;
-      }
-
-      if (!profile.is_phone_verified) {
-        toast.error("Please verify your mobile number before becoming a host");
-        return;
-      }
-
-      const { data: existingHost } = await supabase
-        .from("hosts")
-        .select("id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (existingHost) {
-        toast.error("You are already a host");
-        return;
-      }
-
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update({
-          is_host: true
-        })
-        .eq("user_id", user.id);
-
-      if (updateError) throw updateError;
-
-      const { error: hostError } = await supabase
-        .from("hosts")
-        .insert({
-          user_id: user.id,
-          joined_at: new Date().toISOString()
-        });
-
-      if (hostError) throw hostError;
-
-      toast.success("Welcome aboard! You're now a host 🎉");
+      toast.success(response.data.message);
+      await refreshUser();
       onOpenChange(false);
       navigate("/host/host-listing");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to activate host account");
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to activate host account");
     } finally {
       setLoading(false);
     }
