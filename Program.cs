@@ -38,12 +38,15 @@ public class Program
         builder.Services.AddScoped<ParkingSpaceService>();
         builder.Services.AddScoped<BookingService>();
         builder.Services.AddScoped<VehicleService>();
+        builder.Services.AddScoped<HostService>();
+        builder.Services.AddScoped<ImageUploadService>();
 
         builder.Services.AddMemoryCache();
         builder.Services.AddSingleton<ICodeVerifierStore, MemoryCodeVerifierStore>();
 
         // Infrastructure Clients
         builder.Services.AddScoped<IAuthProviderClient, SupabaseAuthClient>();
+        builder.Services.AddScoped<IStorageClient, SupabaseStorageClient>();
 
         // Http Clients
         builder.Services.AddHttpClient();

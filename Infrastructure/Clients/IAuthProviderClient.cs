@@ -10,10 +10,6 @@ public interface IAuthProviderClient
 
     Task<HttpResponseMessage> UpdateAuthenticatedUserAsync(string accessToken, object request);
 
-    Task<HttpResponseMessage> RegisterAuthUserByAdminAsync(object request);
-
-    //Task<HttpResponseMessage> SignInWithIdTokenAsync(object request);
-
     string BuildAuthorizeUrl(string provider, string codeChallenge, string redirectTo);
 
     Task<HttpResponseMessage> ExchangeOAuthCodeAsync(string authCode, string codeVerifier);

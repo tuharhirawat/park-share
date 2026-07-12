@@ -113,34 +113,6 @@ public class SupabaseAuthClient : IAuthProviderClient
             content);
     }
 
-    public Task<HttpResponseMessage> RegisterAuthUserByAdminAsync(object request)
-    {
-        ConfigureHeaders(useServiceRole: true);
-
-        var content = new StringContent(
-            JsonSerializer.Serialize(request),
-            Encoding.UTF8,
-            "application/json");
-
-        return _httpClient.PostAsync(
-            BuildAuthUrl("/auth/v1/admin/users"),
-            content);
-    }
-
-    //public Task<HttpResponseMessage> SignInWithIdTokenAsync(object request)
-    //{
-    //    ConfigureHeaders();
-
-    //    var content = new StringContent(
-    //        JsonSerializer.Serialize(request),
-    //        Encoding.UTF8,
-    //        "application/json");
-
-    //    return _httpClient.PostAsync(
-    //        BuildAuthUrl("/auth/v1/token?grant_type=id_token"),
-    //        content);
-    //}
-
     public string BuildAuthorizeUrl(string provider, string codeChallenge, string redirectTo)
     {
         return BuildAuthUrl(

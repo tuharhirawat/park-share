@@ -35,6 +35,8 @@ public partial class parking_space
 
     public double? lng { get; set; }
 
+    public string timezone { get; set; } = "Asia/Kolkata";
+
     public bool available { get; set; }
 
     public DateTime created_at { get; set; }
