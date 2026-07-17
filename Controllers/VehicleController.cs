@@ -19,8 +19,8 @@ namespace ParkMitra_BE.Controllers
             _currentUserService = currentUserService;
         }
 
-        [HttpGet("GetVehicles")]
-        public async Task<IActionResult> GetUserVehicles()
+        [HttpGet("GetMyVehicles")]
+        public async Task<IActionResult> GetMyVehicles()
         {
             var accessToken = Request.Cookies["access_token"];
 
@@ -32,7 +32,7 @@ namespace ParkMitra_BE.Controllers
             if (currentUser == null)
                 return Unauthorized();
 
-            var vehicles = await _vehicleService.GetVehiclesAsync(currentUser.UserId);
+            var vehicles = await _vehicleService.GetMyVehiclesAsync(currentUser.UserId);
 
             return Ok(vehicles);
         }

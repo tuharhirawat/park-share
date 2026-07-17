@@ -16,7 +16,7 @@ namespace ParkMitra_BE.Services
             _context = context;
         }
 
-        public async Task<List<VehicleDto>> GetVehiclesAsync(Guid userId)
+        public async Task<List<VehicleDto>> GetMyVehiclesAsync(Guid userId)
         {
             return await _context.vehicles
                 .Where(v => v.user_id == userId)

@@ -16,7 +16,7 @@ namespace ParkMitra_BE.Services
             _context = context;
         }
 
-        public async Task<ApiResponseDto> CreateAsync(Guid userId, CreateParkingSpaceDto dto)
+        public async Task<ApiResponseDto> CreateParkingSpaceAsync(Guid userId, CreateParkingSpaceDto dto)
         {
             if (dto.CarSlots == 0 && dto.BikeSlots == 0)
             {
@@ -118,7 +118,7 @@ namespace ParkMitra_BE.Services
             }).ToList();
         }
 
-        public async Task<ApiResponseDto> UpdateAsync(Guid userId, Guid spaceId, CreateParkingSpaceDto dto)
+        public async Task<ApiResponseDto> UpdateParkingSpaceAsync(Guid userId, Guid spaceId, CreateParkingSpaceDto dto)
         {
             var space = await _context.parking_spaces
                 .FirstOrDefaultAsync(s => s.id == spaceId && s.user_id == userId);
@@ -185,6 +185,130 @@ namespace ParkMitra_BE.Services
                 Message = "Listing resubmitted for review."
             };
         }
+
+        public async Task<List<ParkingSpaceSearchDto>> SearchAsync(Guid? currentUserId)
+        {
+            var query = _context.parking_spaces
+                .Where(s => s.available && s.listing_status == "approved");
+
+            if (currentUserId.HasValue)
+            {
+                query = query.Where(s => s.user_id != currentUserId.Value);
+            }
+
+            var spaces = await query
+                .OrderByDescending(s => s.created_at)
+                .ToListAsync();
+
+            if (spaces.Count == 0)
+                return new List<ParkingSpaceSearchDto>();
+
+            var spaceIds = spaces.Select(s => s.id).ToList();
+
+            var titleUpdates = await _context.parking_space_update_requests
+                .Where(u => u.field == "title"
+                    && spaceIds.Contains(u.space_id)
+                    && (u.status == "APPROVED" || u.status == "PENDING"))
+                .OrderByDescending(u => u.created_at)
+                .ToListAsync();
+
+            var latestTitleBySpace = titleUpdates
+                .GroupBy(u => u.space_id)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            return spaces.Select(s =>
+            {
+                var displayTitle = s.title;
+
+                if (latestTitleBySpace.TryGetValue(s.id, out var update)
+                    && !string.IsNullOrEmpty(update.old_value)
+                    && !string.IsNullOrEmpty(update.new_value)
+                    && update.new_value != update.old_value)
+                {
+                    displayTitle = $"{update.new_value} (earlier {update.old_value})";
+                }
+
+                return new ParkingSpaceSearchDto
+                {
+                    Id = s.id,
+                    Title = displayTitle,
+                    Address = s.address,
+                    City = s.city,
+                    PricePerHour = s.price_per_hour,
+                    PricePerDay = s.price_per_day,
+                    VehicleTypes = s.vehicle_types,
+                    Features = s.features,
+                    Rating = s.rating,
+                    ReviewCount = s.review_count,
+                    ImageUrls = s.image_urls,
+                    Lat = s.lat,
+                    Lng = s.lng,
+                    Available = s.available
+                };
+            }).ToList();
+        }
+
+        public async Task<ParkingSpaceSearchDto?> GetSpaceByIdAsync(Guid id, Guid? currentUserId)
+        {
+            var space = await _context.parking_spaces
+                .FirstOrDefaultAsync(s => s.id == id && s.available && s.listing_status == "approved");
+
+            if (space == null) return null;
+
+            if (currentUserId.HasValue && space.user_id == currentUserId.Value)
+                return null;
+
+            var update = await _context.parking_space_update_requests
+                .Where(u => u.field == "title"
+                    && u.space_id == id
+                    && (u.status == "APPROVED" || u.status == "PENDING"))
+                .OrderByDescending(u => u.created_at)
+                .FirstOrDefaultAsync();
+
+            var displayTitle = space.title;
+            if (update != null
+                && !string.IsNullOrEmpty(update.old_value)
+                && !string.IsNullOrEmpty(update.new_value)
+                && update.new_value != update.old_value)
+            {
+                displayTitle = $"{update.new_value} (earlier {update.old_value})";
+            }
+
+            return new ParkingSpaceSearchDto
+            {
+                Id = space.id,
+                Title = displayTitle,
+                Address = space.address,
+                City = space.city,
+                PricePerHour = space.price_per_hour,
+                PricePerDay = space.price_per_day,
+                VehicleTypes = space.vehicle_types,
+                Features = space.features,
+                Rating = space.rating,
+                ReviewCount = space.review_count,
+                ImageUrls = space.image_urls,
+                Lat = space.lat,
+                Lng = space.lng,
+                Available = space.available
+            };
+        }
+
+        public async Task<List<ParkingSlotDto>> GetAvailableSlotsAsync(Guid spaceId)
+        {
+            return await _context.parking_slots
+                .Where(s => s.space_id == spaceId && s.is_active)
+                .OrderBy(s => s.label)
+                .Select(s => new ParkingSlotDto
+                {
+                    Id = s.id,
+                    Label = s.label,
+                    VehicleType = s.vehicle_type,
+                    IsActive = s.is_active
+                })
+                .ToListAsync();
+        }
+
+        // Helper methods
 
         private static string ResolveTimezone(double lat, double lng)
         {

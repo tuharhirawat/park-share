@@ -43,6 +43,10 @@ public partial class ApplicationDbContext : DbContext
 
     public virtual DbSet<vehicle> vehicles { get; set; }
 
+    public virtual DbSet<space_latest_review> space_latest_reviews { get; set; }
+
+    public virtual DbSet<space_reviewer_summary> space_reviewers_summary { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder
@@ -346,6 +350,18 @@ public partial class ApplicationDbContext : DbContext
                    .HasConversion(
                         v => v.ToString().ToLower(),
                         v => Enum.Parse<VehicleType>(v, true));
+        });
+
+        modelBuilder.Entity<space_latest_review>(entity =>
+        {
+            entity.HasNoKey();
+            entity.ToView("space_latest_reviews");
+        });
+
+        modelBuilder.Entity<space_reviewer_summary>(entity =>
+        {
+            entity.HasNoKey();
+            entity.ToView("space_reviewers_summary");
         });
 
         OnModelCreatingPartial(modelBuilder);

@@ -19,8 +19,8 @@ namespace ParkMitra_BE.Controllers
             _currentUserService = currentUserService;
         }
 
-        [HttpPost("Create")]
-        public async Task<IActionResult> Create([FromBody] CreateParkingSpaceDto request)
+        [HttpPost("CreateParkingSpace")]
+        public async Task<IActionResult> CreateParkingSpace([FromBody] CreateParkingSpaceDto request)
         {
             var accessToken = Request.Cookies["access_token"];
             if (string.IsNullOrEmpty(accessToken)) return Unauthorized();
@@ -28,7 +28,7 @@ namespace ParkMitra_BE.Controllers
             var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
             if (currentUser == null) return Unauthorized();
 
-            var result = await _parkingSpaceService.CreateAsync(currentUser.UserId, request);
+            var result = await _parkingSpaceService.CreateParkingSpaceAsync(currentUser.UserId, request);
 
             if (!result.Success) return BadRequest(result);
             return Ok(result);
@@ -47,8 +47,8 @@ namespace ParkMitra_BE.Controllers
             return Ok(spaces);
         }
 
-        [HttpPut("{id}/Update")]
-        public async Task<IActionResult> Update(Guid id, [FromBody] CreateParkingSpaceDto request)
+        [HttpPut("{id}/UpdateParkingSpace")]
+        public async Task<IActionResult> UpdateParkingSpace(Guid id, [FromBody] CreateParkingSpaceDto request)
         {
             var accessToken = Request.Cookies["access_token"];
             if (string.IsNullOrEmpty(accessToken)) return Unauthorized();
@@ -56,10 +56,50 @@ namespace ParkMitra_BE.Controllers
             var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
             if (currentUser == null) return Unauthorized();
 
-            var result = await _parkingSpaceService.UpdateAsync(currentUser.UserId, id, request);
+            var result = await _parkingSpaceService.UpdateParkingSpaceAsync(currentUser.UserId, id, request);
 
             if (!result.Success) return BadRequest(result);
             return Ok(result);
+        }
+
+        [HttpGet("Search")]
+        public async Task<IActionResult> Search()
+        {
+            var accessToken = Request.Cookies["access_token"];
+
+            Guid? currentUserId = null;
+
+            if (!string.IsNullOrEmpty(accessToken))
+            {
+                var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+                currentUserId = currentUser?.UserId;
+            }
+
+            var spaces = await _parkingSpaceService.SearchAsync(currentUserId);
+            return Ok(spaces);
+        }
+
+        [HttpGet("GetSpace/{id}")]
+        public async Task<IActionResult> GetSpaceById(Guid id)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            Guid? currentUserId = null;
+            if (!string.IsNullOrEmpty(accessToken))
+            {
+                var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+                currentUserId = currentUser?.UserId;
+            }
+
+            var space = await _parkingSpaceService.GetSpaceByIdAsync(id, currentUserId);
+            if (space == null) return NotFound();
+            return Ok(space);
+        }
+
+        [HttpGet("{id}/AvailableSlots")]
+        public async Task<IActionResult> GetAvailableSlots(Guid id)
+        {
+            var slots = await _parkingSpaceService.GetAvailableSlotsAsync(id);
+            return Ok(slots);
         }
     }
 }

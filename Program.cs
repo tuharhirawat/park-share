@@ -40,6 +40,7 @@ public class Program
         builder.Services.AddScoped<VehicleService>();
         builder.Services.AddScoped<HostService>();
         builder.Services.AddScoped<ImageUploadService>();
+        builder.Services.AddScoped<ReviewService>();
 
         builder.Services.AddMemoryCache();
         builder.Services.AddSingleton<ICodeVerifierStore, MemoryCodeVerifierStore>();
