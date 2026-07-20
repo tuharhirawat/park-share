@@ -3,12 +3,17 @@ import { format } from "date-fns";
 import { useReviews } from "@/hooks/useReviews";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
-import SpaceReviewersModal from "@/components/host/SpaceReviewersModal";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const ReviewsList = ({ spaceId }: { spaceId: string }) => {
   const [openAllReviews, setOpenAllReviews] = useState(false);
-  const { reviews, loading } = useReviews(spaceId);
+  const { reviews, loading } = useReviews(spaceId);                       // always on — preview
+  const {
+    reviews: allReviews,
+    loading: loadingAll,
+    hasMore,
+    loadMore,
+  } = useReviews(spaceId, 10, openAllReviews);                            // only fetches once dialog opens
 
   if (loading && reviews.length === 0) {
     return (
@@ -34,15 +39,6 @@ const ReviewsList = ({ spaceId }: { spaceId: string }) => {
         <div className="grid gap-4">
           {reviews.map((r) => (
             <div key={r.id} className="bg-muted/40 rounded-2xl p-5 space-y-3 transition-colors hover:bg-muted/60">
-              {/* <div className="flex items-center justify-between">
-                <h4 className="font-semibold">
-                  Recent Reviews
-                </h4>
-
-                <span className="text-sm text-muted-foreground">
-                  {reviews.length} recent reviewer{reviews.length > 1 ? "s" : ""}
-                </span>
-              </div> */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
@@ -96,10 +92,66 @@ const ReviewsList = ({ spaceId }: { spaceId: string }) => {
         open={openAllReviews}
         onOpenChange={setOpenAllReviews}
       >
-        <DialogContent className="w-[95vw] sm:max-w-2xl lg:max-w-4xl max-h-[85vh] p-0 overflow-hidden rounded-2xl">
-          <SpaceReviewersModal
-            spaceId={spaceId}
-          />
+        <DialogContent className="w-[95vw] sm:max-w-2xl lg:max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl p-6 space-y-5">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold">All Reviews</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            {allReviews.map((r) => (
+              <div key={r.id} className="bg-muted/40 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
+                      {r?.full_name?.charAt(0) || "U"}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">
+                        {r?.full_name || "Anonymous User"}
+                      </p>
+                      <div className="flex gap-0.5">
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <Star
+                            key={i}
+                            className={`w-3 h-3 ${i <= r.rating ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground/20"
+                              }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-xs text-muted-foreground font-medium">
+                    {format(new Date(r.created_at), "MMM d, yyyy")}
+                    {r.updated_at !== r.created_at && (
+                      <span className="ml-2 text-[10px]">Edited</span>
+                    )}
+                  </span>
+                </div>
+                {r.review_text?.trim() && (
+                  <p className="text-sm text-foreground leading-relaxed pl-11">
+                    {r.review_text}
+                  </p>
+                )}
+              </div>
+            ))}
+
+            {allReviews.length === 0 && !loadingAll && (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                No reviews yet.
+              </p>
+            )}
+          </div>
+
+          {hasMore && (
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={loadMore}
+              disabled={loadingAll}
+            >
+              {loadingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : "Load More"}
+            </Button>
+          )}
         </DialogContent>
       </Dialog>
     </>

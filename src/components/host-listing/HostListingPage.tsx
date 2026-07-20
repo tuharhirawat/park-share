@@ -284,8 +284,8 @@ const HostListingPage = ({ editSpace }: Props) => {
       };
 
       const response = editSpace
-        ? await api.put(`/ParkingSpace/${editSpace.id}/Update`, payload)
-        : await api.post("/ParkingSpace/Create", payload);
+        ? await api.put(`/ParkingSpace/${editSpace.id}/UpdateParkingSpace`, payload)
+        : await api.post("/ParkingSpace/CreateParkingSpace", payload);
 
       toast.success(response.data.message);
       navigate("/host/dashboard");

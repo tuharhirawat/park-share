@@ -3,9 +3,8 @@ import ParkingCard from "@/components/ParkingCard";
 import { Button } from "@/components/ui/button";
 import { MapPin, SlidersHorizontal, Car, Bike, X, Loader2 } from "lucide-react";
 import { useParkingSpaces } from "@/hooks/useParkingSpaces";
-import { useAuth } from "@/hooks/use-auth";
 
-const cities = ["All", "Bangalore", "Mumbai", "Delhi", "Pune", "Chennai", "Hyderabad"];
+const cities = ["All", "Bangalore", "Mumbai", "Delhi", "Pune", "Chennai", "Hyderabad", "Visakhapatnam "];
 const vehicleOptions = ["bike", "car"] as const;
 
 const SearchPage = () => {
@@ -18,7 +17,6 @@ const SearchPage = () => {
       lat: number;
       lng: number;
     } | null>(null);
-  const { user } = useAuth();
   const { data: spaces = [], isLoading } = useParkingSpaces();
 
   useEffect(() => {
@@ -34,13 +32,12 @@ const SearchPage = () => {
 
   const filtered = useMemo(() => {
     return spaces.filter(s => {
-      if (user && s.userId === user.id) return false;
       if (selectedCity !== "All" && s.city !== selectedCity) return false;
       if (selectedVehicle && !s.vehicleTypes.includes(selectedVehicle as any)) return false;
       if (query && !s.title.toLowerCase().includes(query.toLowerCase()) && !s.city.toLowerCase().includes(query.toLowerCase()) && !s.address.toLowerCase().includes(query.toLowerCase())) return false;
       return true;
     });
-  }, [query, selectedCity, selectedVehicle, spaces, user]);
+  }, [query, selectedCity, selectedVehicle, spaces]);
 
   return (
     <div className="min-h-screen bg-background">

@@ -4,19 +4,19 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import SpaceImageCarousel from "@/components/SpaceImageCarousel";
-import { Star, MapPin, Shield, Clock, Car, Bike, ArrowLeft, Navigation, CalendarIcon, Loader2 } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import { Star, MapPin, Shield, Clock, Car, Bike, ArrowLeft, CalendarIcon, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
+import api from "@/services/api"
 import { toast } from "sonner";
 import { Calendar } from "@/components/ui/calendar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { useParkingSpaces } from "@/hooks/useParkingSpaces";
+import { useParkingSpaceDetails } from "@/hooks/useParkingSpaces";
 import ApproximateLocationMap from "@/components/ApproximateLocationMap";
-import { getLatestDisplayValue } from "@/lib/spaceUpdates";
 import ReviewsList from "@/components/ReviewsList";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select";
 import { getCurrentTime, isToday, isPastTime } from "@/lib/time";
@@ -57,8 +57,7 @@ const SpaceDetail = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { authOpen, setAuthOpen, requireAuth, redirectPath } = useAuthGuard();
-  const { data: allSpaces = [], isLoading } = useParkingSpaces();
-  const space = allSpaces.find((s) => s.id === id);
+  const { data: space, isLoading } = useParkingSpaceDetails(id);
 
   const [isFullDay, setIsFullDay] = useState(false);
   const [startTime, setStartTime] = useState("09:00");
@@ -72,6 +71,8 @@ const SpaceDetail = () => {
   const [bookingClosedToday, setBookingClosedToday] = useState(false);
   const [timeWarningOpen, setTimeWarningOpen] = useState(false);
   const [lastValidTime, setLastValidTime] = useState("09:00");
+  const [bookedVehicleIds, setBookedVehicleIds] = useState<string[]>([]);
+  const [bookedSlotIds, setBookedSlotIds] = useState<string[]>([]);
 
   // User's vehicles
   const [userVehicles, setUserVehicles] = useState<UserVehicle[]>([]);
@@ -82,73 +83,48 @@ const SpaceDetail = () => {
   const [availableVehicles, setAvailableVehicles] = useState<UserVehicle[]>([]);
   const [availableSlots, setAvailableSlots] = useState<ParkingSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
-  const [latestTitleUpdate, setLatestTitleUpdate] = useState<any>(null);
 
   const filteredVehicleSlots =
     slots.filter(
       s => s.vehicle_type === selectedVehicle
     );
 
-  useEffect(() => {
-
-    if (!space?.id && !space?._dbId) return;
-
-    const fetchLatestTitle = async () => {
-
-      const { data } = await supabase
-        .from("parking_space_update_requests")
-        .select(`
-          old_value,
-          new_value,
-          created_at
-        `)
-        .eq(
-          "space_id",
-          (space._dbId || space.id).replace("db_", "")
-        )
-        .eq("field", "title")
-        .in("status", ["APPROVED", "PENDING"])
-        .order("created_at", {
-          ascending: false
-        })
-        .limit(1)
-        .maybeSingle();
-
-      setLatestTitleUpdate(data || null);
-    };
-
-    fetchLatestTitle();
-
-  }, [space?.id, space?._dbId]);
-
   // Fetch user vehicles
   useEffect(() => {
     if (!user) return;
     setLoadingVehicles(true);
-    supabase
-      .from("vehicles")
-      .select("id, vehicle_type, brand_model, registration_number")
-      .eq("user_id", user.id)
-      .then(({ data }) => {
-        setUserVehicles((data as UserVehicle[]) || []);
+    api.get("/Vehicle/GetMyVehicles")
+      .then((response) => {
+        setUserVehicles(
+          (response.data || []).map((v: any) => ({
+            id: v.id,
+            vehicle_type: v.vehicleType,
+            brand_model: v.brandModel,
+            registration_number: v.registrationNumber,
+          }))
+        );
         setLoadingVehicles(false);
-      });
+      })
+      .catch(() => setLoadingVehicles(false));
   }, [user]);
 
   // Fetch all slots for this space
   useEffect(() => {
     if (!space?._dbId) return;
     setLoadingSlots(true);
-    supabase
-      .from("parking_slots")
-      .select("id, label, vehicle_type, is_active")
-      .eq("space_id", space._dbId)
-      .eq("is_active", true)
-      .order("label")
-      .then(({ data }) => {
-        setSlots((data as ParkingSlot[]) || []);
+    api.get(`/ParkingSpace/${space._dbId}/AvailableSlots`)
+      .then((response) => {
+        setSlots(
+          (response.data || []).map((s: any) => ({
+            id: s.id,
+            label: s.label,
+            vehicle_type: s.vehicleType,
+            is_active: s.isActive,
+          }))
+        );
         setLoadingSlots(false);
-      });
+      })
+      .catch(() => setLoadingSlots(false));
   }, [space]);
 
   useEffect(() => {
@@ -182,45 +158,63 @@ const SpaceDetail = () => {
     }
   }, [startTime]);
 
-  const checkVehicleAvailability = useCallback(async () => {
-    if (!selectedDate || !userVehicles.length) {
-      setAvailableVehicles(
-        userVehicles
-          .filter(v => space?.vehicleTypes.includes(v.vehicle_type as any))
-          .map(v => ({
-            ...v,
-            isBooked: false
-          }))
-      );
+  useEffect(() => {
+    if (!user) {
+      setBookedVehicleIds([]);
+      setBookedSlotIds([]);
       return;
     }
 
+    if (!space?._dbId || !selectedDate) {
+      setBookedVehicleIds([]);
+      setBookedSlotIds([]);
+      return;
+    }
+
+    if (!isFullDay && isToday(selectedDate) && isPastTime(selectedDate, startTime)) {
+      return;
+    }
+    
     const actualStartTime = isFullDay ? "00:00" : startTime;
     const actualEndTime = isFullDay ? "23:59" : calculateEndTime(startTime, duration);
 
-    const { data: bookings } = await supabase
-      .from("bookings")
-      .select("vehicle_id")
-      .eq("booking_date", format(selectedDate, "yyyy-MM-dd"))
-      .in("status", ["pending", "confirmed"])
-      .lt("start_time", formatTime(actualEndTime))
-      .gt("end_time", formatTime(actualStartTime));
+    api.get("/Booking/GetSpaceBookingAvailability", {
+      params: {
+        spaceId: space._dbId,
+        date: format(selectedDate, "yyyy-MM-dd"),
+        startTime: formatTime(actualStartTime),
+        endTime: formatTime(actualEndTime),
+      },
+    })
+      .then((response) => {
+        setBookedVehicleIds(response.data.bookedVehicleIds || []);
+        setBookedSlotIds(response.data.bookedSlotIds || []);
+      })
+      .catch(() => {
+        setBookedVehicleIds([]);
+        setBookedSlotIds([]);
+      });
 
-    const bookedVehicleIds = new Set((bookings || []).map(b => b.vehicle_id));
-
-    const vehiclesData = userVehicles
-      .filter(v => space?.vehicleTypes.includes(v.vehicle_type as any))
-      .map(v => ({
-        ...v,
-        isBooked: bookedVehicleIds.has(v.id)
-      }));
-
-    setAvailableVehicles(vehiclesData);
-  }, [userVehicles, selectedDate, startTime, duration, isFullDay, space?.vehicleTypes]);
+  }, [user, space?._dbId, selectedDate, startTime, duration, isFullDay]);
 
   useEffect(() => {
-    checkVehicleAvailability();
-  }, [checkVehicleAvailability]);
+    setAvailableVehicles(
+      userVehicles
+        .filter(v =>
+          space?.vehicleTypes
+            .map(t => t.toLowerCase())
+            .includes(v.vehicle_type.toLowerCase() as any)
+        )
+        .map(v => ({
+          ...v,
+          isBooked: bookedVehicleIds.includes(v.id)
+        }))
+    );
+  }, [userVehicles, bookedVehicleIds, space?.vehicleTypes]);
+
+  useEffect(() => {
+    setAvailableSlots(filteredVehicleSlots.filter(s => !bookedSlotIds.includes(s.id)));
+  }, [slots, selectedVehicle, bookedSlotIds]);
 
   const calculateEndTime = (start: string, duration: number) => {
     const [h, m] = start.split(":").map(Number);
@@ -244,36 +238,6 @@ const SpaceDetail = () => {
     setDuration(minutes);
     setSelectedSlotId("");
   }
-
-  // Filter available slots when vehicle type / date / time change
-  const checkSlotAvailability = useCallback(async () => {
-    if (!space?._dbId || !selectedVehicle || !selectedDate) {
-      setAvailableSlots(filteredVehicleSlots);
-      return;
-    }
-
-    const actualStartTime = isFullDay ? "00:00" : startTime;
-    const actualEndTime = isFullDay ? "23:59" : calculateEndTime(startTime, duration);
-
-    // Get booked slot_ids for this time
-    const { data: bookedBookings } = await supabase
-      .from("bookings")
-      .select("slot_id")
-      .eq("space_id", space._dbId)
-      .eq("booking_date", format(selectedDate, "yyyy-MM-dd"))
-      .in("status", ["pending", "confirmed"])
-      .lt("start_time", formatTime(actualEndTime))
-      .gt("end_time", formatTime(actualStartTime))
-      .not("slot_id", "is", null);
-
-    const bookedSlotIds = new Set((bookedBookings || []).map(b => b.slot_id));
-    const vehicleSlots = filteredVehicleSlots;
-    setAvailableSlots(vehicleSlots.filter(s => !bookedSlotIds.has(s.id)));
-  }, [space, selectedVehicle, selectedDate, startTime, duration, isFullDay, slots]);
-
-  useEffect(() => {
-    checkSlotAvailability();
-  }, [checkSlotAvailability]);
 
   const calculateHours = () => {
     if (!selectedDate) return 0;
@@ -368,7 +332,7 @@ const SpaceDetail = () => {
               vehicle_type: selectedVehicle,
               vehicle_id: selectedVehicleId,
               slot_id: selectedSlotId || null,
-              user_id: user.id
+              user_id: user.userId
             },
 
             payment_data: {
@@ -415,7 +379,7 @@ const SpaceDetail = () => {
             amount: totalPrice,
             currency: "INR",
             receipt: `bk_${dbSpaceId.slice(0, 8)}_${Date.now().toString(36)}`.substring(0, 40),
-            notes: { space_id: dbSpaceId, user_id: user.id },
+            notes: { space_id: dbSpaceId, user_id: user.userId },
             booking_id: bookingId
           },
         }
@@ -628,8 +592,8 @@ const SpaceDetail = () => {
     (filteredVehicleSlots.length > 0 && !selectedSlotId);
 
   const vehicleIcons: Record<string, React.ReactNode> = {
-    bike: <Bike className="w-4 h-4" />,
-    car: <Car className="w-4 h-4" />,
+    Bike: <Bike className="w-4 h-4" />,
+    Car: <Car className="w-4 h-4" />,
   };
 
   const availableVehicleCount = availableVehicles.filter(
@@ -654,16 +618,7 @@ const SpaceDetail = () => {
               />
               <div>
                 <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground mb-2">
-                  {
-                    getLatestDisplayValue({
-                      currentValue:
-                        latestTitleUpdate?.new_value,
-
-                      previousValue:
-                        latestTitleUpdate?.old_value
-                        || space.title
-                    })
-                  }
+                  {space.title}
                 </h1>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
                   <span className="flex items-center gap-1"><MapPin className="w-4 h-4" />Approximate location in {space.city}</span>
@@ -742,7 +697,7 @@ const SpaceDetail = () => {
                     <Select value={selectedVehicleId} onValueChange={(vid) => {
                       setSelectedVehicleId(vid);
                       const veh = availableVehicles.find(v => v.id === vid);
-                      if (veh && !veh.isBooked) setSelectedVehicle(veh.vehicle_type);
+                      if (veh && !veh.isBooked) setSelectedVehicle(veh.vehicle_type.toLowerCase());
                       setSelectedSlotId("");
                       setErrors(prev => ({ ...prev, vehicle: "" }));
                     }}>

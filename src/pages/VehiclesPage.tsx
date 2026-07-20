@@ -78,7 +78,7 @@ const VehiclesPage = () => {
     setLoading(true);
 
     try {
-      const response = await api.get("/Vehicle/GetVehicles");
+      const response = await api.get("/Vehicle/GetMyVehicles");
 
       setVehicles(response.data);
     } catch {

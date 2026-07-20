@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import api from "@/services/api";
 
 export interface Review {
   id: string;
@@ -14,72 +14,65 @@ export interface Review {
   total_reviews_by_user: number;
 }
 
-export const useReviews = (spaceId: string, limit = 5) => {
+interface ApiReview {
+  id: string;
+  bookingId: string;
+  userId: string;
+  spaceId: string;
+  rating: number;
+  reviewText: string | null;
+  createdAt: string;
+  updatedAt: string;
+  fullName: string | null;
+  totalReviewsByUser: number;
+}
 
-  const [reviews,setReviews] = useState<Review[]>([]);
-  const [loading,setLoading] = useState(false);
-  const [hasMore,setHasMore] = useState(true);
-  const [page,setPage] = useState(0);
+const mapApiToReview = (r: ApiReview): Review => ({
+  id: r.id,
+  booking_id: r.bookingId,
+  user_id: r.userId,
+  space_id: r.spaceId,
+  rating: r.rating,
+  review_text: r.reviewText,
+  created_at: r.createdAt,
+  updated_at: r.updatedAt,
+  full_name: r.fullName,
+  total_reviews_by_user: r.totalReviewsByUser,
+});
+
+export const useReviews = (spaceId: string, limit = 5, enabled = true) => {
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(0);
 
   const fetchPage = useCallback(
-    async (pageNumber:number, replace=false) => {
-
+    async (pageNumber: number, replace = false) => {
       setLoading(true);
-
-      const from = pageNumber * limit;
-      const to = from + limit - 1;
-
-      const { data, error } = await supabase
-        .from("space_latest_reviews")
-        .select(`
-          id,
-          booking_id,
-          user_id,
-          space_id,
-          rating,
-          review_text,
-          created_at,
-          updated_at,
-          full_name,
-          total_reviews_by_user
-        `)
-        .eq("space_id", spaceId)
-        .order("updated_at", {
-          ascending:false
-        })
-        .range(from,to);
-
-      if(error){
+      try {
+        const response = await api.get(`/Review/space/${spaceId}`, {
+          params: { page: pageNumber, limit },
+        });
+        const rows = ((response.data || []) as ApiReview[]).map(mapApiToReview);
+        setReviews(prev => (replace ? rows : [...prev, ...rows]));
+        setHasMore(rows.length === limit);
+      } catch (error) {
         console.error(error);
+      } finally {
         setLoading(false);
-        return;
       }
-
-      const rows = (data || []) as Review[];
-
-      setReviews(prev =>
-        replace
-          ? rows
-          : [...prev,...rows]
-      );
-
-      setHasMore(
-        rows.length === limit
-      );
-
-      setLoading(false);
-
     },
-    [spaceId,limit]
+    [spaceId, limit]
   );
 
-  useEffect(()=>{
+  useEffect(() => {
+    if (!enabled) return;          // ← don't fetch until this hook instance is actually needed
     setPage(0);
-    fetchPage(0,true);
-  },[spaceId,fetchPage]);
+    fetchPage(0, true);
+  }, [spaceId, fetchPage, enabled]);
 
   const loadMore = async () => {
-    if(loading || !hasMore) return;
+    if (loading || !hasMore) return;
 
     const nextPage = page + 1;
 

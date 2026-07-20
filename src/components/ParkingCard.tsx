@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import type { ParkingSpace } from "@/hooks/useParkingSpaces";
 import { calculateDistanceMeters } from "@/lib/distance";
-import { getLatestDisplayValue } from "@/lib/spaceUpdates";
 
 const vehicleIcons: Record<string, React.ReactNode> = {
   bike: <Bike className="w-3 h-3" />,
@@ -45,16 +44,7 @@ const ParkingCard = ({ space, userLocation }: { space: ParkingSpace, userLocatio
         <div className="p-4 flex flex-col flex-1">
           <div className="flex items-start justify-between mb-2">
             <h3 className="font-display font-bold text-foreground text-base leading-tight">
-              {
-                getLatestDisplayValue({
-                  currentValue:
-                    space.latestTitleUpdate?.new_value ||
-                    space.title,
-
-                  previousValue:
-                    space.latestTitleUpdate?.old_value
-                })
-              }
+              {space.title}
             </h3>
             <div className="flex items-center gap-1 text-sm shrink-0 ml-2">
               <Star className="w-4 h-4 text-accent fill-accent" />
