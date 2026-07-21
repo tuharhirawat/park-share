@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import api from "@/services/api";
 import { Button } from "@/components/ui/button";
@@ -48,7 +47,6 @@ type PasswordForm = z.infer<typeof passwordSchema>;
 
 const ProfilePage = () => {
   const { user, loading: authLoading, refreshUser } = useAuth();
-  const navigate = useNavigate();
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingEmail, setSavingEmail] = useState(false);
@@ -69,10 +67,6 @@ const ProfilePage = () => {
     resolver: zodResolver(passwordSchema),
     defaultValues: { newPassword: "", confirmPassword: "" },
   });
-
-  useEffect(() => {
-    if (!authLoading && !user) navigate("/login");
-  }, [user, authLoading, navigate]);
 
   useEffect(() => {
     if (!user) return;

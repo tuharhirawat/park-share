@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import api from "@/services/api";
 import { Button } from "@/components/ui/button";
@@ -58,7 +57,6 @@ const formatRegistration = (reg: string) => {
 
 const VehiclesPage = () => {
   const { user, loading: authLoading } = useAuth();
-  const navigate = useNavigate();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -69,10 +67,6 @@ const VehiclesPage = () => {
     resolver: zodResolver(vehicleSchema),
     defaultValues: { vehicleType: undefined, brandModel: "", registrationNumber: "" },
   });
-
-  useEffect(() => {
-    if (!authLoading && !user) navigate("/login");
-  }, [user, authLoading, navigate]);
 
   const fetchVehicles = useCallback(async () => {
     setLoading(true);

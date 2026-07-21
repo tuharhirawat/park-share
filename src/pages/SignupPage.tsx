@@ -22,6 +22,8 @@ import { GoogleSignIn } from "@/components/GoogleSignIn";
 import { Separator } from "@/components/ui/separator";
 import { getLoginRoute, isAuthProviderEnabled, hasEmailAuth } from "@/config/authConfig";
 import api from "@/services/api";
+import { useRedirectTarget } from "@/hooks/useRedirectTarget";
+import { withRedirect } from "@/lib/redirect";
 
 const signupSchema = z
   .object({
@@ -84,6 +86,7 @@ const TermsContent = () => (
 
 const SignupPage = () => {
   const navigate = useNavigate();
+  const redirectTo = useRedirectTarget();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -108,7 +111,7 @@ const SignupPage = () => {
       });
 
       toast.success(response.data.message || "Account created! Check your email to verify.");
-      navigate("/login");
+      navigate(withRedirect("/login", redirectTo));
     } catch (error: any) {
       toast.error(
         error?.response?.data?.message || "Signup failed"
@@ -229,14 +232,14 @@ const SignupPage = () => {
                     </div>
                   )}
 
-                  <GoogleSignIn text="Continue with Google" />
+                  <GoogleSignIn text="Continue with Google" redirectTo={redirectTo} />
                 </>
               )}
 
               {hasEmailAuth() && (
                 <p className="text-sm text-muted-foreground text-center">
                   Already have an account?{" "}
-                  <Link to="/login" className="text-primary hover:underline font-medium">Log In</Link>
+                  <Link to={withRedirect("/login", redirectTo)} className="text-primary hover:underline font-medium">Log In</Link>
                 </p>
               )}
             </CardFooter>

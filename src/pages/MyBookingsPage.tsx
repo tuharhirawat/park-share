@@ -669,10 +669,6 @@ const MyBookingsPage = () => {
   };
 
   useEffect(() => {
-    if (!authLoading && !user) navigate("/login");
-  }, [user, authLoading, navigate]);
-
-  useEffect(() => {
     loadRazorpayScript();
   }, []);
 

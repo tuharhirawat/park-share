@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { hasEmailAuth, isAuthProviderEnabled } from "@/config/authConfig";
 import { GoogleSignIn } from "@/components/GoogleSignIn";
 import { useNavigate } from "react-router-dom";
+import { withRedirect } from "@/lib/redirect";
 
 type Props = {
   open: boolean;
@@ -43,7 +44,7 @@ const AuthRequiredModal = ({
               <Button
                 className="w-full"
                 onClick={() =>
-                  navigate("/login")
+                  navigate(withRedirect("/login", redirectPath))
                 }
               >
                 Continue with Email
@@ -53,11 +54,7 @@ const AuthRequiredModal = ({
 
           {isAuthProviderEnabled("google") && (
             <GoogleSignIn
-              redirectTo={
-                redirectPath
-                  ? `${window.location.origin}${redirectPath}`
-                  : undefined
-              }
+              redirectTo={redirectPath}
             />
           )}
 

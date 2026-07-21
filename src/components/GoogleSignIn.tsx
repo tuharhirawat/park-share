@@ -25,10 +25,12 @@ const GoogleIcon = () => (
 
 interface GoogleSignInProps {
   text?: string;
+  redirectTo?: string;
 }
 
 export const GoogleSignIn = ({
   text = "Continue with Google",
+  redirectTo,
 }: GoogleSignInProps) => {
   const [loading, setLoading] = useState(false);
 
@@ -37,8 +39,12 @@ export const GoogleSignIn = ({
 
     setLoading(true);
 
-    window.location.href =
-      `${api.defaults.baseURL}/thirdpartyauth/google/login`;
+    const url = new URL(`${api.defaults.baseURL}/thirdpartyauth/google/login`);
+    if (redirectTo) {
+      url.searchParams.set("redirectTo", redirectTo);
+    }
+
+    window.location.href = url.toString();
   };
 
   return (

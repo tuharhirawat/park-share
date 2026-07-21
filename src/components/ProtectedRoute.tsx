@@ -1,6 +1,7 @@
 import { useAuth } from "@/hooks/use-auth";
 import { Navigate, useLocation } from "react-router-dom";
 import { getLoginRoute } from "@/config/authConfig";
+import { withRedirect } from "@/lib/redirect";
 
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
 
@@ -12,9 +13,7 @@ const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
   if (!user) {
     return (
       <Navigate
-        to={getLoginRoute()}
-        state={{ from: location }}
-        replace
+        to={withRedirect(getLoginRoute(), location.pathname)} replace
       />
     );
   }

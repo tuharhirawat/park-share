@@ -224,10 +224,6 @@ const HostDashboard = () => {
     features?: string;
   }>({});
 
-  useEffect(() => {
-    if (!authLoading && !user) navigate("/login");
-  }, [user, authLoading, navigate]);
-
   const fetchAll = useCallback(async () => {
     if (!user) return;
     setLoading(true);
