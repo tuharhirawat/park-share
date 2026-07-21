@@ -28,8 +28,20 @@ namespace ParkMitra_BE.Services
             _config = config;
         }
 
+        private record OAuthStatePayload(string Verifier, string? RedirectTo);
+
+        // Only allow same-origin relative paths — never trust an absolute/external URL here.
+        // Blocks open-redirect attempts like redirectTo=https://evil.com or //evil.com.
+        private static bool IsSafeRedirect(string? redirectTo)
+        {
+            if (string.IsNullOrWhiteSpace(redirectTo)) return false;
+            if (!redirectTo.StartsWith('/')) return false;
+            if (redirectTo.StartsWith("//")) return false; // protocol-relative URL trick
+            return Uri.TryCreate(redirectTo, UriKind.Relative, out _);
+        }
+
         public (bool Success, string? RedirectUrl, string? Message) BuildLoginRedirect(
-            string provider, string callbackBaseUrl)
+            string provider, string callbackBaseUrl, string? redirectTo)
         {
             var allowed = _config.GetSection("OAuth:AllowedProviders").Get<string[]>() ?? Array.Empty<string>();
             if (!allowed.Contains(provider, StringComparer.OrdinalIgnoreCase))
@@ -37,29 +49,34 @@ namespace ParkMitra_BE.Services
 
             var state = Guid.NewGuid().ToString("N");
             var (verifier, challenge) = Pkce.Generate();
-            _verifierStore.Save(state, verifier);
 
-            var redirectTo = $"{callbackBaseUrl}?state={state}&provider={provider}";
-            var authorizeUrl = _supabaseAuthClient.BuildAuthorizeUrl(provider, challenge, redirectTo);
+            var safeRedirect = IsSafeRedirect(redirectTo) ? redirectTo : null;
+            var payload = JsonSerializer.Serialize(new OAuthStatePayload(verifier, safeRedirect));
+            _verifierStore.Save(state, payload);
 
+            var redirectUri = $"{callbackBaseUrl}?state={state}&provider={provider}";
+            var authorizeUrl = _supabaseAuthClient.BuildAuthorizeUrl(provider, challenge, redirectUri);
             return (true, authorizeUrl, null);
         }
 
         public async Task<AuthenticationResponseDto> HandleCallbackAsync(string code, string state, string provider)
         {
-            var verifier = _verifierStore.Consume(state);
-            if (verifier == null)
+            var stored = _verifierStore.Consume(state);
+            if (stored == null)
                 return new AuthenticationResponseDto { Success = false, Message = "Invalid or expired login attempt." };
 
-            var response = await _supabaseAuthClient.ExchangeOAuthCodeAsync(code, verifier);
-            var responseContent = await response.Content.ReadAsStringAsync();
+            var payload = JsonSerializer.Deserialize<OAuthStatePayload>(stored);
+            if (payload == null)
+                return new AuthenticationResponseDto { Success = false, Message = "Invalid or expired login attempt." };
 
+            var response = await _supabaseAuthClient.ExchangeOAuthCodeAsync(code, payload.Verifier);
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
             if (!response.IsSuccessStatusCode)
                 return new AuthenticationResponseDto { Success = false, Message = "Third-party sign-in failed." };
 
             using var doc = JsonDocument.Parse(responseContent);
             var root = doc.RootElement;
-
             var accessToken = root.GetProperty("access_token").GetString()!;
             var refreshToken = root.GetProperty("refresh_token").GetString()!;
             var expiresIn = root.GetProperty("expires_in").GetInt32();
@@ -82,7 +99,8 @@ namespace ParkMitra_BE.Services
                 Success = true,
                 AccessToken = accessToken,
                 RefreshToken = refreshToken,
-                ExpiresIn = expiresIn
+                ExpiresIn = expiresIn,
+                RedirectTo = payload.RedirectTo
             };
         }
     }

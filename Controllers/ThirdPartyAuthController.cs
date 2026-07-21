@@ -19,18 +19,16 @@ namespace ParkMitra_BE.Controllers
         }
 
         [HttpGet("{provider}/login")]
-        public IActionResult Login(string provider)
+        public IActionResult Login(string provider, [FromQuery] string? redirectTo)
         {
             var backendBaseUrl = _configuration["Application:BackendBaseUrl"]!;
-
             var callbackUrl = $"{backendBaseUrl}/api/thirdpartyauth/callback";
 
-            var result = _thirdPartyAuthService.BuildLoginRedirect(provider, callbackUrl);
+            var result = _thirdPartyAuthService.BuildLoginRedirect(provider, callbackUrl, redirectTo);
 
             if (!result.Success)
                 return BadRequest(new { result.Success, result.Message });
-
-            Console.WriteLine(result.RedirectUrl);
+            
             return Redirect(result.RedirectUrl!);
         }
 
@@ -43,10 +41,14 @@ namespace ParkMitra_BE.Controllers
                 return Unauthorized(new { result.Success, result.Message });
 
             var frontendBaseUrl = _configuration["Application:FrontendBaseUrl"]!;
-
+            
             _cookieService.SetAuthCookies(Response, result.AccessToken!, result.RefreshToken!, result.ExpiresIn);
 
-            return Redirect($"{frontendBaseUrl}/auth/callback");
+            var redirectTo = string.IsNullOrEmpty(result.RedirectTo)
+                ? ""
+                : $"?redirectTo={Uri.EscapeDataString(result.RedirectTo)}";
+
+            return Redirect($"{frontendBaseUrl}/auth/callback{redirectTo}");
         }
     }
 }
