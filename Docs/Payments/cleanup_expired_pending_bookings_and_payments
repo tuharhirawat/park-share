@@ -1,0 +1,131 @@
+-- =====================================================================
+-- cleanup_expired_pending_bookings_and_payments()
+--
+-- WHAT IT DOES
+-- Finds bookings/payments that have been stuck in "pending" for longer
+-- than the configured timeout, and marks them as abandoned so the
+-- parking slot becomes available again.
+--
+-- WHY IT EXISTS
+-- A slot is reserved the moment a booking is created, before payment
+-- happens. If a user never completes payment, the slot must not stay
+-- blocked forever. This function is the cleanup for that case — see
+-- payment-timeout-and-webhook.md for the full picture (this is the
+-- "Part 2" safety net; payment confirmation itself is handled
+-- separately by VerifyPayment / the Razorpay webhook).
+--
+-- WHERE IT RUNS
+-- Called every 2 minutes by a pg_cron job:
+--   SELECT cleanup_expired_pending_bookings_and_payments();
+--
+-- RETURNS
+-- The number of bookings/payments it just expired (useful for logging
+-- or monitoring — e.g. alert if this number stays unusually high).
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION cleanup_expired_pending_bookings_and_payments()
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_timeout_minutes INTEGER;
+    v_expired_count INTEGER;
+BEGIN
+    -- Step 1: Read the timeout from system_settings.
+    -- Defaults to 5 minutes if the setting row is missing for any reason,
+    -- so a bad/missing config row can't accidentally make bookings expire
+    -- instantly (timeout = 0) or never (timeout = NULL).
+    SELECT COALESCE(value::INTEGER, 5)
+    INTO v_timeout_minutes
+    FROM system_settings
+    WHERE key = 'payment_timeout_minutes';
+
+    -- Step 2: Find and expire the payments, then the bookings, in one
+    -- statement using CTEs so both updates happen atomically — either
+    -- both go through or neither does.
+    WITH expired_payments AS
+    (
+        -- Only touch payments that are still pending AND whose booking
+        -- is still pending too (this is the safety check: anything
+        -- already Confirmed, Cancelled, Failed, or Refunded is never
+        -- touched, because it won't match status = 'pending').
+        UPDATE payments p
+        SET
+            status = 'abandoned',
+            payment_stage = 'timeout',
+            failure_reason = 'payment_timeout'
+        FROM bookings b
+        WHERE
+            p.booking_id = b.id
+            AND p.status = 'pending'
+            AND b.status = 'pending'
+            AND p.created_at <= NOW() - make_interval(mins => v_timeout_minutes)
+        RETURNING p.booking_id
+    ),
+    updated_bookings AS
+    (
+        -- Flip the matching bookings to paymentabandoned, which is what
+        -- actually frees the slot for other users to book.
+        UPDATE bookings b
+        SET
+            status = 'paymentabandoned',
+            updated_at = NOW()
+        WHERE
+            b.status = 'pending'
+            AND EXISTS
+            (
+                SELECT 1
+                FROM expired_payments ep
+                WHERE ep.booking_id = b.id
+            )
+        RETURNING b.id
+    )
+    -- Step 3: Count how many were expired, to return as a result.
+    SELECT COUNT(*)
+    INTO v_expired_count
+    FROM expired_payments;
+
+    RETURN v_expired_count;
+END;
+$$;
+
+-- =====================================================================
+-- pg_cron schedule (run once to (re)register the job — safe to re-run,
+-- it will just update the existing schedule if the job name matches)
+-- =====================================================================
+-- SELECT cron.schedule(
+--     'cleanup-expired-bookings',        -- job name
+--     '*/2 * * * *',                     -- every 2 minutes
+--     $$SELECT cleanup_expired_pending_bookings_and_payments();$$
+-- );
+
+-- =====================================================================
+-- THINGS TO KNOW BEFORE CHANGING THIS FUNCTION
+--
+-- 1. Timeout window comes from p.created_at, not b.created_at — it's
+--    measured from when the PAYMENT record was created, not the
+--    booking. If your booking and payment rows aren't always created
+--    at the same moment, double check this is still the field you want.
+--
+-- 2. The WHERE clauses check BOTH payment.status = 'pending' AND
+--    booking.status = 'pending'. If you ever add a new status value to
+--    either table, this function silently ignores rows in that new
+--    status — it will never touch them, since they won't match
+--    'pending'. That's usually what you want, but worth remembering.
+--
+-- 3. This function must stay in sync with whatever the webhook /
+--    VerifyPayment path does. If a payment.status = 'pending' row is
+--    picked up by this function AT THE SAME MOMENT a payment.captured
+--    webhook is trying to confirm it, whichever transaction commits
+--    first wins. This is a narrow race window (webhook delivery is
+--    near-instant, this job runs every 2 min against a 5 min timeout)
+--    but it is technically possible. If this function's logic changes,
+--    re-check that race still makes sense.
+--
+-- 4. To change the timeout duration, don't hardcode it here — update
+--    the system_settings row instead:
+--      UPDATE system_settings SET value = '10' WHERE key = 'payment_timeout_minutes';
+--
+-- 5. To change how often cleanup runs, update the pg_cron schedule
+--    above, not this function.
+-- =====================================================================

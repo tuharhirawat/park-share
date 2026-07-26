@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using ParkMitra_BE.DTOs.Booking;
 using ParkMitra_BE.Services;
 
 namespace ParkMitra_BE.Controllers
@@ -33,6 +34,39 @@ namespace ParkMitra_BE.Controllers
 
             var result = await _bookingService.GetSpaceBookingAvailabilityAsync(spaceId, date, startTime, endTime);
             return Ok(result);
+        }
+
+        [HttpPost("CreateBooking")]
+        public async Task<IActionResult> CreateBooking([FromBody] CreateBookingRequestDto request)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken)) return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (currentUser == null) return Unauthorized();
+
+            var result = await _bookingService.CreateBookingAsync(currentUser.UserId, request);
+
+            if (!result.Success) return BadRequest(result);
+            return Ok(result);
+        }
+
+        [HttpGet("GetMyBookings")]
+        public async Task<IActionResult> GetMyBookings()
+        {
+            var accessToken = Request.Cookies["access_token"];
+
+            if (string.IsNullOrEmpty(accessToken))
+                return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+
+            if (currentUser == null)
+                return Unauthorized();
+
+            var bookings = await _bookingService.GetMyBookingsAsync(currentUser.UserId);
+
+            return Ok(bookings);
         }
     }
 }

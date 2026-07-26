@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ParkMitra_BE.Enums;
+using System;
 using System.Collections.Generic;
 
 namespace ParkMitra_BE.Models;
@@ -19,7 +20,7 @@ public partial class booking
 
     public decimal total_price { get; set; }
 
-    public string status { get; set; } = null!;
+    public BookingStatus status { get; set; }
 
     public DateTime created_at { get; set; }
 

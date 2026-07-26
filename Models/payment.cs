@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ParkMitra_BE.Enums;
+using System;
 using System.Collections.Generic;
 
 namespace ParkMitra_BE.Models;
@@ -19,7 +20,7 @@ public partial class payment
 
     public string? currency { get; set; }
 
-    public string status { get; set; } = null!;
+    public PaymentStatus status { get; set; }
 
     public string payment_type { get; set; } = null!;
 

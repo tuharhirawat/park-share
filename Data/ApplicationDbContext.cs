@@ -126,6 +126,11 @@ public partial class ApplicationDbContext : DbContext
                 .HasForeignKey(d => d.vehicle_id)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("bookings_vehicle_id_fkey");
+
+            entity.Property(e => e.status).HasConversion(
+                v => v.ToString().ToLower(),
+                v => Enum.Parse<BookingStatus>(v, true)
+            );
         });
 
         modelBuilder.Entity<contact_message>(entity =>
@@ -258,7 +263,11 @@ public partial class ApplicationDbContext : DbContext
                 .HasForeignKey(d => d.booking_id)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("payments_booking_id_fkey");
-        });
+
+            entity.Property(e => e.status).HasConversion(
+                v => v.ToString().ToLower(),
+                v => Enum.Parse<PaymentStatus>(v, true));
+            });
 
         modelBuilder.Entity<profile>(entity =>
         {

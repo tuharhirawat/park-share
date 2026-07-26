@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ParkMitra_BE.Data;
 using ParkMitra_BE.Infrastructure.Clients;
+using ParkMitra_BE.Options;
 using ParkMitra_BE.Services;
 using ParkMitra_BE.Services.Auth;
 using System.Text.Json.Serialization;
@@ -41,6 +42,8 @@ public class Program
         builder.Services.AddScoped<HostService>();
         builder.Services.AddScoped<ImageUploadService>();
         builder.Services.AddScoped<ReviewService>();
+        builder.Services.AddScoped<PaymentService>();
+        builder.Services.AddScoped<PricingService>();
 
         builder.Services.AddMemoryCache();
         builder.Services.AddSingleton<ICodeVerifierStore, MemoryCodeVerifierStore>();
@@ -48,6 +51,10 @@ public class Program
         // Infrastructure Clients
         builder.Services.AddScoped<IAuthProviderClient, SupabaseAuthClient>();
         builder.Services.AddScoped<IStorageClient, SupabaseStorageClient>();
+        builder.Services.AddScoped<IPaymentGatewayClient, RazorpayClient>();
+
+        // Options
+        builder.Services.Configure<PricingOptions>(builder.Configuration.GetSection("Pricing"));
 
         // Http Clients
         builder.Services.AddHttpClient();
