@@ -10,6 +10,7 @@ import { format, parseISO } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import api from "@/services/api";
 import {
   Select,
   SelectContent,
@@ -30,28 +31,26 @@ import { calculatePricing } from "@/lib/pricingCalculator";
 
 interface Booking {
   id: string;
-  space_id: string;
-  space_title: string;
-  space_address: string;
-  space_city: string;
-  hours: number;
-  duration_minutes: number;
-  total_price: number;
+  spaceId: string;
+  spaceTitle: string;
+  spaceAddress: string;
+  spaceCity: string;
+  spaceLat?: number;
+  spaceLng?: number;
+  durationMinutes: number;
+  totalPrice: number;
   status: string;
-  booking_date: string | null;
-  start_time: string | null;
-  end_time: string | null;
-  created_at: string;
-  vehicle_type: string;
-  vehicle_id: string | null;
-  slot_id: string | null;
-  original_start_time: string | null;
-  original_end_time: string | null;
-  original_duration_minutes: number | null;
-  has_used_free_extension: boolean;
-  free_extension_minutes_used: number | null;
-  space_lat?: number;
-  space_lng?: number;
+  computedStatus: string;
+  bookingDate: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  createdAt: string;
+  vehicleType: string;
+  vehicleId: string | null;
+  slotId: string | null;
+  hasUsedFreeExtension: boolean;
+  freeExtensionMinutesUsed: number;
+  hasReview: boolean;
 }
 
 interface Review {
@@ -92,7 +91,7 @@ const MAX_DAY_MINUTES = (23 * 60) + 59;
 const displayTime = (t: string | null) => (t ? t.slice(0, 5) : "--:--");
 
 const canExtendBooking = (booking: Booking) => {
-  const end = toMinutes(booking.end_time?.slice(0, 5) || "00:00");
+  const end = toMinutes(booking.endTime?.slice(0, 5) || "00:00");
   return end + EXTEND_STEP <= MAX_DAY_MINUTES;
 };
 
@@ -158,7 +157,7 @@ const calculatePricingForDuration = ({
   pricePerHour: number;
   proposedDurationMinutes: number;
 }) => {
-  const currentDuration = booking.duration_minutes;
+  const currentDuration = booking.durationMinutes;
   const extraMinutes = proposedDurationMinutes - currentDuration;
 
   let parkingExtensionCost =
@@ -177,30 +176,30 @@ const calculatePricingForDuration = ({
     parkingExtensionCost,
     platformFee,
     freeMinutesApplied: 0,
-    newTotalPrice: booking.total_price + extraCost,
+    newTotalPrice: booking.totalPrice + extraCost,
     canUseFreeExtension: true,
     nextFreeExtensionMinutesUsed: 0,
-    nextHasUsedFreeExtension: booking.has_used_free_extension
+    nextHasUsedFreeExtension: booking.hasUsedFreeExtension
   };
 };
 
 const computeStatus = (booking: Booking): ComputedStatus => {
   if (booking.status === "cancelled") return "cancelled";
-  if (!booking.booking_date) return "upcoming";
+  if (!booking.bookingDate) return "upcoming";
 
   const now = new Date();
-  const bookingDate = parseISO(booking.booking_date);
+  const bookingDate = parseISO(booking.bookingDate);
 
-  const [sh, sm] = (booking.start_time || "00:00").split(":").map(Number);
+  const [sh, sm] = (booking.startTime || "00:00").split(":").map(Number);
   const startDt = new Date(bookingDate);
   startDt.setHours(sh, sm, 0, 0);
 
-  const [eh, em] = (booking.end_time || "23:59").split(":").map(Number);
+  const [eh, em] = (booking.endTime || "23:59").split(":").map(Number);
   const endDt = new Date(bookingDate);
   endDt.setHours(eh, em, 0, 0);
 
-  if (!booking.end_time) {
-    endDt.setTime(startDt.getTime() + booking.duration_minutes * 60 * 1000);
+  if (!booking.endTime) {
+    endDt.setTime(startDt.getTime() + booking.durationMinutes * 60 * 1000);
   }
 
   if (now < startDt) return "upcoming";
@@ -514,7 +513,7 @@ const ReduceTimeConfirmationModal = ({ data, onConfirm, onCancel, }: {
             <div className="flex justify-between">
               <span>Current duration</span>
               <strong>
-                {formatDuration(data.booking.duration_minutes)}
+                {formatDuration(data.booking.durationMinutes)}
               </strong>
             </div>
 
@@ -595,7 +594,7 @@ const MyBookingsPage = () => {
   } | null>(null);
 
   const canIncreaseExtension = (booking: Booking) =>
-    toMinutes(booking.end_time!.slice(0, 5)) + extendMinutes + EXTEND_STEP <= MAX_DAY_MINUTES;
+    toMinutes(booking.endTime!.slice(0, 5)) + extendMinutes + EXTEND_STEP <= MAX_DAY_MINUTES;
 
   const canDecreaseExtension = () => {
     return extendMinutes > EXTEND_STEP;
@@ -699,67 +698,18 @@ const MyBookingsPage = () => {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase
-        .from("bookings")
-        .select(`
-          *,
-          parking_spaces (
-            lat,
-            lng
-          )
-        `)
-        .eq("user_id", user.id)
-        .in("status", ["confirmed", "cancelled"])
-        .order("created_at", { ascending: false });
+      const response = await api.get("/Booking/GetMyBookings");
 
-      if (error) {
-        toast.error("Failed to load bookings");
-        return;
-      }
+      const data = response.data;
 
-      const enrichedBookings = (data || []).map((b: any) => ({
-        ...b,
-        space_lat: b.parking_spaces?.lat,
-        space_lng: b.parking_spaces?.lng,
-      }));
+      setBookings(data);
 
-      setBookings(enrichedBookings);
-
-      const spaceIds = enrichedBookings.map(
-        (b: any) => b.space_id
-      );
+      const spaceIds = data.map((b: Booking) => b.spaceId);
 
       if (!spaceIds.length) {
         setLatestTitleUpdates({});
         return;
       }
-
-      const { data: titleUpdates } = await supabase
-        .from("parking_space_update_requests")
-        .select(`
-          space_id,
-          old_value,
-          new_value,
-          created_at
-        `)
-        .eq("field", "title")
-        .in("status", ["APPROVED", "PENDING"])
-        .in("space_id", spaceIds)
-        .order("created_at", {
-          ascending: false
-        });
-
-      const latestMap: Record<string, any> = {};
-
-      titleUpdates?.forEach((update) => {
-
-        if (!latestMap[update.space_id]) {
-          latestMap[update.space_id] = update;
-        }
-
-      });
-
-      setLatestTitleUpdates(latestMap);
 
     } catch (err) {
       toast.error("Something went wrong");
@@ -773,7 +723,7 @@ const MyBookingsPage = () => {
     const { data } = await supabase
       .from("reviews")
       .select("id, booking_id, rating, review_text")
-      .eq("user_id", user.id)
+      .eq("user_id", user.userId)
     if (data) setReviews(data as Review[]);
   }, [user]);
 
@@ -804,7 +754,7 @@ const MyBookingsPage = () => {
   };
 
   const handleExtend = async (booking: Booking) => {
-    const currentEnd = (booking.end_time || "23:59").slice(0, 5);
+    const currentEnd = (booking.endTime || "23:59").slice(0, 5);
     const currentEndMinutes = toMinutes(currentEnd);
     const extensionMinutes = extendMinutes;
     const extendEndTime = addMinutesToTime(currentEnd, extensionMinutes);
@@ -821,11 +771,11 @@ const MyBookingsPage = () => {
 
     // Check availability
     const { data: capacityCheck } = await supabase.rpc("check_parking_capacity", {
-      p_space_id: booking.space_id,
-      p_slot_id: booking.slot_id,
-      p_vehicle_type: booking.vehicle_type,
-      p_booking_date: booking.booking_date!,
-      p_start_time: formatTimeForDB(booking.end_time!),
+      p_space_id: booking.spaceId,
+      p_slot_id: booking.slotId,
+      p_vehicle_type: booking.vehicleType,
+      p_booking_date: booking.bookingDate!,
+      p_start_time: formatTimeForDB(booking.endTime!),
       p_end_time: formatTimeForDB(extendEndTime),
       p_exclude_booking_id: booking.id,
     });
@@ -839,7 +789,7 @@ const MyBookingsPage = () => {
     const { data: space } = await supabase
       .from("parking_spaces")
       .select("price_per_hour")
-      .eq("id", booking.space_id)
+      .eq("id", booking.spaceId)
       .single();
 
     if (!space) {
@@ -848,8 +798,8 @@ const MyBookingsPage = () => {
     }
 
     const proposedDurationMinutes =
-      booking.duration_minutes +
-      (toMinutes(extendEndTime) - toMinutes(booking.end_time ?? booking.start_time ?? "00:00"));
+      booking.durationMinutes +
+      (toMinutes(extendEndTime) - toMinutes(booking.endTime ?? booking.startTime ?? "00:00"));
     const pricing = calculatePricingForDuration({
       booking,
       pricePerHour: space.price_per_hour,
@@ -861,7 +811,7 @@ const MyBookingsPage = () => {
       return;
     }
 
-    const newTotalPrice = booking.total_price + pricing.extraCost;
+    const newTotalPrice = booking.totalPrice + pricing.extraCost;
 
     setRescheduleConfirmation({
       bookingId: booking.id,
@@ -870,8 +820,8 @@ const MyBookingsPage = () => {
       newTotalPrice,
       canUseFreeExtension: pricing.canUseFreeExtension,
       pricePerHour: space.price_per_hour,
-      rescheduleDate: parseISO(booking.booking_date!),
-      rescheduleStartTime: booking.start_time!,
+      rescheduleDate: parseISO(booking.bookingDate!),
+      rescheduleStartTime: booking.startTime!,
       rescheduleEndTime: extendEndTime,
       isPaidExtension: pricing.extraCost > 0,
       freeMinutesApplied: pricing.freeMinutesApplied,
@@ -913,16 +863,16 @@ const MyBookingsPage = () => {
     const proposedDurationMinutes = rescheduleMinutes;
 
     const computedEndTime = addMinutesToTime(
-      rescheduleStartTime, 
+      rescheduleStartTime,
       rescheduleMinutes
     );
 
     const endMinutes = toMinutes(computedEndTime);
 
     const isSameAsCurrent =
-      rescheduleStartTime === (booking.start_time || "").slice(0, 5) &&
-      computedEndTime === (booking.end_time || "").slice(0, 5) &&
-      format(rescheduleDate, "yyyy-MM-dd") === booking.booking_date;
+      rescheduleStartTime === (booking.startTime || "").slice(0, 5) &&
+      computedEndTime === (booking.endTime || "").slice(0, 5) &&
+      format(rescheduleDate, "yyyy-MM-dd") === booking.bookingDate;
 
     if (isSameAsCurrent) {
       toast.error("No changes detected. Please select different time.");
@@ -934,7 +884,7 @@ const MyBookingsPage = () => {
       return;
     }
 
-    const currentDurationMinutes = booking.duration_minutes;
+    const currentDurationMinutes = booking.durationMinutes;
 
     if ((proposedDurationMinutes < currentDurationMinutes) && !skipReductionWarning) {
       setReduceConfirmation({
@@ -950,9 +900,9 @@ const MyBookingsPage = () => {
 
     // Check capacity
     const { data: capacityCheck } = await supabase.rpc("check_parking_capacity", {
-      p_space_id: booking.space_id,
-      p_slot_id: booking.slot_id,
-      p_vehicle_type: booking.vehicle_type,
+      p_space_id: booking.spaceId,
+      p_slot_id: booking.slotId,
+      p_vehicle_type: booking.vehicleType,
       p_booking_date: format(rescheduleDate, "yyyy-MM-dd"),
       p_start_time: formatTimeForDB(rescheduleStartTime),
       p_end_time: formatTimeForDB(computedEndTime),
@@ -968,7 +918,7 @@ const MyBookingsPage = () => {
     const { data: space } = await supabase
       .from("parking_spaces")
       .select("price_per_hour")
-      .eq("id", booking.space_id)
+      .eq("id", booking.spaceId)
       .single();
 
     if (!space) {
@@ -978,16 +928,16 @@ const MyBookingsPage = () => {
 
     let pricing;
 
-    if (proposedDurationMinutes === booking.duration_minutes) {
+    if (proposedDurationMinutes === booking.durationMinutes) {
       pricing = {
         extraFromCurrent: 0,
         extraCost: 0,
-        newTotalPrice: booking.total_price,
+        newTotalPrice: booking.totalPrice,
         canUseFreeExtension: false,
         freeMinutesApplied: 0,
         nextFreeExtensionMinutesUsed: 0,
         nextHasUsedFreeExtension:
-          booking.has_used_free_extension
+          booking.hasUsedFreeExtension
       };
     }
     else {
@@ -998,7 +948,7 @@ const MyBookingsPage = () => {
       });
     }
 
-    const newTotalPrice = booking.total_price + pricing.extraCost;
+    const newTotalPrice = booking.totalPrice + pricing.extraCost;
     const isPaidExtension = pricing.extraCost > 0;
 
     setRescheduleConfirmation({
@@ -1034,7 +984,7 @@ const MyBookingsPage = () => {
         .from("payments")
         .insert({
           booking_id: booking.id,
-          user_id: user?.id,
+          user_id: user?.userId,
           amount: payableAmount,
           status: "pending",
           payment_type: confirmation.type === "extend"
@@ -1068,8 +1018,8 @@ const MyBookingsPage = () => {
             receipt: `${confirmation.type}_${booking.id}_${Date.now().toString(36)}`.substring(0, 40),
             notes: {
               booking_id: booking.id,
-              space_id: booking.space_id,
-              user_id: user?.id,
+              spaceId: booking.spaceId,
+              user_id: user?.userId,
             },
             payment_id: paymentRow?.id,
             booking_id: booking.id
@@ -1089,35 +1039,35 @@ const MyBookingsPage = () => {
         amount: payableAmount * 100,
         currency: "INR",
         name: "Park Mitra",
-        description: `Parking ${confirmation.type}: ${booking.space_title}`,
+        description: `Parking ${confirmation.type}: ${booking.spaceTitle}`,
         order_id: orderData.order_id,
         handler: async (response: any) => {
           try {
             // Prepare booking data based on type
             const bookingData: any = {
               booking_id: booking.id,
-              space_id: booking.space_id,
-              space_title: booking.space_title,
-              space_address: booking.space_address,
-              space_city: booking.space_city,
-              duration_minutes: newDurationMinutes,
-              total_price: booking.total_price + payableAmount,
-              vehicle_type: booking.vehicle_type,
-              vehicle_id: booking.vehicle_id || null,
-              slot_id: booking.slot_id || null,
+              spaceId: booking.spaceId,
+              spaceTitle: booking.spaceTitle,
+              spaceAddress: booking.spaceAddress,
+              spaceCity: booking.spaceCity,
+              durationMinutes: newDurationMinutes,
+              totalPrice: booking.totalPrice + payableAmount,
+              vehicle_type: booking.vehicleType,
+              vehicle_id: booking.vehicleId || null,
+              slot_id: booking.slotId || null,
               has_used_free_extension: confirmation.nextHasUsedFreeExtension,
               free_extension_minutes_used: confirmation.nextFreeExtensionMinutesUsed,
             };
 
             if (confirmation.type === "reschedule") {
-              bookingData.booking_date = format(confirmation.rescheduleDate, "yyyy-MM-dd");
-              bookingData.start_time = confirmation.rescheduleStartTime;
-              bookingData.end_time = confirmation.rescheduleEndTime;
+              bookingData.bookingDate = format(confirmation.rescheduleDate, "yyyy-MM-dd");
+              bookingData.startTime = confirmation.rescheduleStartTime;
+              bookingData.endTime = confirmation.rescheduleEndTime;
             } else {
               // extend
-              bookingData.booking_date = booking.booking_date;
-              bookingData.start_time = booking.start_time;
-              bookingData.end_time = confirmation.rescheduleEndTime;
+              bookingData.bookingDate = booking.bookingDate;
+              bookingData.startTime = booking.startTime;
+              bookingData.endTime = confirmation.rescheduleEndTime;
             }
 
             const { data: verifyData, error: verifyError } = await supabase.functions.invoke("verify-razorpay-payment", {
@@ -1260,19 +1210,19 @@ const MyBookingsPage = () => {
 
     // Prepare update data based on type
     const updateData: any = {
-      duration_minutes: newDurationMinutes,
-      total_price: rescheduleConfirmation.newTotalPrice,
+      durationMinutes: newDurationMinutes,
+      totalPrice: rescheduleConfirmation.newTotalPrice,
       has_used_free_extension: rescheduleConfirmation.nextHasUsedFreeExtension,
       free_extension_minutes_used: rescheduleConfirmation.nextFreeExtensionMinutesUsed,
     };
 
     if (rescheduleConfirmation.type === "reschedule") {
-      updateData.booking_date = format(rescheduleConfirmation.rescheduleDate, "yyyy-MM-dd");
-      updateData.start_time = rescheduleConfirmation.rescheduleStartTime;
-      updateData.end_time = rescheduleConfirmation.rescheduleEndTime;
+      updateData.bookingDate = format(rescheduleConfirmation.rescheduleDate, "yyyy-MM-dd");
+      updateData.startTime = rescheduleConfirmation.rescheduleStartTime;
+      updateData.endTime = rescheduleConfirmation.rescheduleEndTime;
     } else {
-      // extend only updates end_time
-      updateData.end_time = rescheduleConfirmation.rescheduleEndTime;
+      // extend only updates endTime
+      updateData.endTime = rescheduleConfirmation.rescheduleEndTime;
     }
 
     const { data, error } = await supabase
@@ -1308,9 +1258,9 @@ const MyBookingsPage = () => {
     setSubmittingReview(true);
 
     const reviewData = {
-      user_id: user.id,
+      user_id: user.userId,
       booking_id: booking.id,
-      space_id: booking.space_id,
+      spaceId: booking.spaceId,
       rating: reviewRating,
       review_text: reviewText || null,
       updated_at: new Date().toISOString(),
@@ -1360,7 +1310,7 @@ const MyBookingsPage = () => {
     () =>
       bookings.map(b => ({
         ...b,
-        computedStatus: computeStatus(b),
+        computedStatus: b.computedStatus.toLowerCase(),
         hasReview: reviewsByBooking.has(b.id)
       })),
     [bookings, reviewsByBooking]
@@ -1401,9 +1351,9 @@ const MyBookingsPage = () => {
       booking.computedStatus === "completed" ||
       booking.computedStatus === "cancelled"
     ) {
-      return `Previously parked in ${booking.space_city}`;
+      return `Previously parked in ${booking.spaceCity}`;
     }
-    return `${booking.space_address}, ${booking.space_city}`;
+    return `${booking.spaceAddress}, ${booking.spaceCity}`;
   };
 
   const openDirections = (
@@ -1430,20 +1380,20 @@ const MyBookingsPage = () => {
                   getLatestDisplayValue({
                     currentValue:
                       latestTitleUpdates[
-                        booking.space_id
+                        booking.spaceId
                       ]?.new_value ||
-                      booking.space_title,
+                      booking.spaceTitle,
 
                     previousValue:
                       latestTitleUpdates[
-                        booking.space_id
+                        booking.spaceId
                       ]?.old_value
                   })
                 }
               </h3>
               <Badge variant="outline" className={cfg.color}>{cfg.label}</Badge>
-              {booking.vehicle_type && <Badge variant="secondary" className="capitalize text-xs">{booking.vehicle_type}</Badge>}
-              {canExtendBooking(booking) && !cancelledBooking && (booking.has_used_free_extension ? (
+              {booking.vehicleType && <Badge variant="secondary" className="capitalize text-xs">{booking.vehicleType}</Badge>}
+              {canExtendBooking(booking) && !cancelledBooking && (booking.hasUsedFreeExtension ? (
                 <Badge className="bg-yellow-500/20 text-yellow-700 text-xs">
                   Grace Used
                 </Badge>
@@ -1455,9 +1405,9 @@ const MyBookingsPage = () => {
             </div>
             <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
               <span className="flex items-center gap-1"><MapPin className="w-4 h-4" /> {getDisplayLocation(booking)}</span>
-              {booking.booking_date && <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> {format(parseISO(booking.booking_date), "MMM d, yyyy")}</span>}
-              <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {displayTime(booking.start_time)} – {displayTime(booking.end_time)}</span>
-              <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {Math.floor(booking.duration_minutes / 60)}h {booking.duration_minutes % 60}m</span>
+              {booking.bookingDate && <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> {format(parseISO(booking.bookingDate), "MMM d, yyyy")}</span>}
+              <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {displayTime(booking.startTime)} – {displayTime(booking.endTime)}</span>
+              <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {Math.floor(booking.durationMinutes / 60)}h {booking.durationMinutes % 60}m</span>
             </div>
             {booking.computedStatus === "completed" && (
               <div className="text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
@@ -1466,19 +1416,19 @@ const MyBookingsPage = () => {
             )}
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-lg font-bold text-foreground">₹{booking.total_price}</span>
+            <span className="text-lg font-bold text-foreground">₹{booking.totalPrice}</span>
             {(booking.computedStatus === "active" || booking.computedStatus === "upcoming") && (
               <Button
                 variant="outline"
                 size="sm"
                 className="gap-1"
-                onClick={() => openDirections(booking.space_lat!, booking.space_lng!)}
+                onClick={() => openDirections(booking.spaceLat!, booking.spaceLng!)}
               >
                 <Navigation className="w-3.5 h-3.5" />
                 Navigate
               </Button>
             )}
-            {showActions && booking.computedStatus === "upcoming" && booking.duration_minutes < 1440 && (
+            {showActions && booking.computedStatus === "upcoming" && booking.durationMinutes < 1440 && (
               <>
                 <Button
                   variant="outline"
@@ -1486,9 +1436,9 @@ const MyBookingsPage = () => {
                   className="gap-1"
                   onClick={() => {
                     setReschedulingId(booking.id);
-                    setRescheduleDate(parseISO(booking.booking_date!));
-                    setRescheduleStartTime(booking.start_time?.slice(0, 5) || "");
-                    setRescheduleMinutes(booking.duration_minutes);
+                    setRescheduleDate(parseISO(booking.bookingDate!));
+                    setRescheduleStartTime(booking.startTime?.slice(0, 5) || "");
+                    setRescheduleMinutes(booking.durationMinutes);
                   }}
                 >
                   <RefreshCw className="w-3.5 h-3.5" /> Reschedule
@@ -1516,7 +1466,7 @@ const MyBookingsPage = () => {
               variant="secondary"
               size="sm"
               className="rounded-full"
-              onClick={() => navigate(`/space/db_${booking.space_id}`)}
+              onClick={() => navigate(`/space/db_${booking.spaceId}`)}
             >
               Book Again
             </Button>
@@ -1687,7 +1637,7 @@ const MyBookingsPage = () => {
           <ActionNote type="extend" />
           {extendBooking && (
             <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">Current end time: <strong>{extendBooking.end_time?.slice(0, 5)}</strong></p>
+              <p className="text-sm text-muted-foreground">Current end time: <strong>{extendBooking.endTime?.slice(0, 5)}</strong></p>
               <div>
                 <label className="text-sm font-medium block mb-1">New End Time</label>
                 <div className="flex items-center justify-between border rounded-xl p-3">
@@ -1718,7 +1668,7 @@ const MyBookingsPage = () => {
                       New End Time:
                       {" "}
                       {addMinutesToTime(
-                        extendBooking.end_time?.slice(0, 5) || "00:00",
+                        extendBooking.endTime?.slice(0, 5) || "00:00",
                         extendMinutes
                       )}
                     </p>
@@ -1770,7 +1720,7 @@ const MyBookingsPage = () => {
             setReschedulingId(null);
             setRescheduleDate(
               rescheduleBooking
-                ? parseISO(rescheduleBooking.booking_date!)
+                ? parseISO(rescheduleBooking.bookingDate!)
                 : undefined
             );
             setRescheduleStartTime("");

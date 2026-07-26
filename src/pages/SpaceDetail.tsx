@@ -84,6 +84,9 @@ const SpaceDetail = () => {
   const [availableSlots, setAvailableSlots] = useState<ParkingSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
+  const [debouncedStartTime, setDebouncedStartTime] = useState(startTime);
+  const [debouncedDuration, setDebouncedDuration] = useState(duration);
+
   const filteredVehicleSlots =
     slots.filter(
       s => s.vehicle_type === selectedVehicle
@@ -174,7 +177,7 @@ const SpaceDetail = () => {
     if (!isFullDay && isToday(selectedDate) && isPastTime(selectedDate, startTime)) {
       return;
     }
-    
+
     const actualStartTime = isFullDay ? "00:00" : startTime;
     const actualEndTime = isFullDay ? "23:59" : calculateEndTime(startTime, duration);
 
@@ -195,7 +198,7 @@ const SpaceDetail = () => {
         setBookedSlotIds([]);
       });
 
-  }, [user, space?._dbId, selectedDate, startTime, duration, isFullDay]);
+  }, [user, space?._dbId, selectedDate, debouncedStartTime, debouncedDuration, isFullDay]);
 
   useEffect(() => {
     setAvailableVehicles(
@@ -215,6 +218,15 @@ const SpaceDetail = () => {
   useEffect(() => {
     setAvailableSlots(filteredVehicleSlots.filter(s => !bookedSlotIds.includes(s.id)));
   }, [slots, selectedVehicle, bookedSlotIds]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedStartTime(startTime);
+      setDebouncedDuration(duration);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [startTime, duration]);
 
   const calculateEndTime = (start: string, duration: number) => {
     const [h, m] = start.split(":").map(Number);
@@ -310,156 +322,75 @@ const SpaceDetail = () => {
     let bookingId: string | null = null;
 
     try {
-      const dbSpaceId = space._dbId;
+      const dbSpaceId = space._dbId!;
       const actualStartTime = isFullDay ? "00:00" : startTime;
       const actualEndTime = isFullDay ? "23:59" : calculateEndTime(startTime, duration);
 
       // Check capacity before proceeding
-      const { data: lockData, error: lockError } = await supabase.functions.invoke(
-        "create-booking-lock",
-        {
-          body: {
-            booking_data: {
-              space_id: dbSpaceId,
-              space_title: space.title,
-              space_address: space.address,
-              space_city: space.city,
-              duration_minutes: Math.floor(effectiveHours * 60),
-              total_price: totalPrice,
-              booking_date: format(selectedDate!, "yyyy-MM-dd"),
-              start_time: actualStartTime,
-              end_time: actualEndTime,
-              vehicle_type: selectedVehicle,
-              vehicle_id: selectedVehicleId,
-              slot_id: selectedSlotId || null,
-              user_id: user.userId
-            },
+      const createResponse = await api.post("/Booking/CreateBooking", {
+        spaceId: dbSpaceId,
+        bookingDate: format(selectedDate!, "yyyy-MM-dd"),
+        startTime: formatTime(actualStartTime),
+        endTime: formatTime(actualEndTime),
+        isFullDay,
+        vehicleId: selectedVehicleId,
+        vehicleType: selectedVehicle,
+        slotId: selectedSlotId || null,
+      });
 
-            payment_data: {
-              base_price: pricing.basePrice,
-              host_payout: pricing.hostPayout,
-              host_commission: pricing.hostCommission,
-              platform_fee: pricing.serviceFee,
-              gst_amount: pricing.gst,
-              total_payable: pricing.totalPayable,
-              pricing_version: pricing.version
-            }
-          }
-        }
-      );
-
-      if (lockError) {
-        console.error("Lock invoke error:", lockError);
-        toast.error("Something went wrong. Please try again.");
-        setBooking(false);
-        return;
-      }
-
-      if (!lockData || !lockData.success) {
-
-        if (lockData?.error === "VEHICLE_CONFLICT") {
+      if (!createResponse.data.success) {
+        if (createResponse.data.errorCode === "VEHICLE_CONFLICT" || createResponse.data.errorCode === "SLOT_CONFLICT") {
           toast.error("Slot just got booked. Please select another.");
         } else {
-          toast.error("Something went wrong. Please try again.");
+          toast.error(createResponse.data.message || "Something went wrong. Please try again.");
         }
-
         setBooking(false);
         return;
       }
 
-      bookingId = lockData.booking_id;
+      bookingId = createResponse.data.bookingId;
+      const totalPayable = createResponse.data.totalPayable;
 
       const loaded = await loadRazorpayScript();
       if (!loaded) throw new Error("Failed to load payment gateway");
 
-      const { data: orderData, error: orderError } = await supabase.functions.invoke(
-        "create-razorpay-order",
-        {
-          body: {
-            amount: totalPrice,
-            currency: "INR",
-            receipt: `bk_${dbSpaceId.slice(0, 8)}_${Date.now().toString(36)}`.substring(0, 40),
-            notes: { space_id: dbSpaceId, user_id: user.userId },
-            booking_id: bookingId
-          },
-        }
-      );
+      const orderResponse = await api.post("/Payment/CreatePaymentOrder", { bookingId });
 
-      if (orderError || !orderData?.order_id) {
-        throw new Error(orderData?.error || "Failed to create payment order");
+      if (!orderResponse.data.success) {
+        throw new Error(orderResponse.data.message || "Failed to create payment order");
       }
 
+      const { orderId, keyId, amountInPaise } = orderResponse.data;
+
       const options = {
-        key: orderData.key_id,
-        amount: totalPrice * 100,
+        key: keyId,
+        amount: amountInPaise,
         currency: "INR",
         name: "Park Mitra",
         description: `Parking: ${space.title}`,
-        order_id: orderData.order_id,
+        order_id: orderId,
         handler: async (response: any) => {
           try {
-            const { data: verifyData } = await supabase.functions.invoke(
-              "verify-razorpay-payment",
-              {
-                body: {
-                  razorpay_order_id: response.razorpay_order_id,
-                  razorpay_payment_id: response.razorpay_payment_id,
-                  razorpay_signature: response.razorpay_signature,
-                  booking_data: {
-                    booking_id: bookingId,
-                    space_id: dbSpaceId,
-                    space_title: space.title,
-                    space_address: space.address,
-                    space_city: space.city,
-                    duration_minutes: Math.floor(effectiveHours * 60),
-                    total_price: totalPrice,
-                    base_price: pricing.basePrice,
-                    host_payout: pricing.hostPayout,
-                    host_commission: pricing.hostCommission,
-                    platform_fee: pricing.serviceFee,
-                    gst_amount: pricing.gst,
-                    total_payable: pricing.totalPayable,
-                    pricing_version: pricing.version,
-                    booking_date: format(selectedDate!, "yyyy-MM-dd"),
-                    start_time: actualStartTime,
-                    end_time: actualEndTime,
-                    vehicle_type: selectedVehicle,
-                    vehicle_id: selectedVehicleId || null,
-                    slot_id: selectedSlotId || null,
-                  },
-                },
-              }
-            );
+            const verifyResponse = await api.post("/Payment/VerifyPayment", {
+              bookingId,
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+            });
 
-            if (!verifyData?.success) {
-
-              if (verifyData?.error === "VEHICLE_CONFLICT") {
-                await supabase.functions.invoke("refund-payment", {
-                  body: {
-                    payment_id: response.razorpay_payment_id
-                  }
-                });
-
+            if (!verifyResponse.data.success) {
+              if (verifyResponse.data.errorCode === "VEHICLE_CONFLICT" || verifyResponse.data.errorCode === "SLOT_CONFLICT") {
                 toast.error("Vehicle already booked. Refund initiated.");
-                return;
+              } else {
+                toast.error(verifyResponse.data.message || "Booking failed. Contact support.");
               }
-
-              toast.error(verifyData.message || "Booking failed. Contact support.");
               return;
-            } else {
-              toast.success("Booking confirmed! 🎉");
-              navigate("/my-bookings");
-            }
-          } catch {
-            if (response?.razorpay_payment_id) {
-              await supabase.functions.invoke("refund-payment", {
-                body: {
-                  payment_id: response.razorpay_payment_id
-                }
-              });
             }
 
-            toast.error("Something went wrong. Amount refunded.");
+            toast.success("Booking confirmed! 🎉");
+            navigate("/my-bookings");
+          } catch {
+            toast.error("Something went wrong. Please contact support if you were charged.");
           }
           setBooking(false);
         },
@@ -468,22 +399,8 @@ const SpaceDetail = () => {
         modal: {
           ondismiss: async () => {
             if (bookingId) {
-              await supabase
-                .from("bookings")
-                .update({ status: "payment_abandoned" })
-                .eq("id", bookingId)
-                .eq("status", "pending");
+              await api.post("/Payment/MarkPaymentAbandoned", { bookingId });
             }
-
-            await supabase
-              .from("payments")
-              .update({
-                status: "abandoned",
-                failure_reason: "user_closed_payment_modal"
-              })
-              .eq("booking_id", bookingId)
-              .eq("status", "pending");
-
             setBooking(false);
           }
         },
@@ -492,46 +409,23 @@ const SpaceDetail = () => {
       const rzp = new window.Razorpay(options);
       rzp.on("payment.failed", async () => {
         if (bookingId) {
-          await supabase
-            .from("bookings")
-            .update({ status: "payment_failed" })
-            .eq("id", bookingId)
-            .eq("status", "pending");
+          await api.post("/Payment/MarkPaymentFailed", { bookingId });
         }
-
-        await supabase
-          .from("payments")
-          .update({
-            status: "failed",
-            failure_reason: "gateway_failure"
-          })
-          .eq("booking_id", bookingId)
-          .eq("status", "pending");
 
         toast.error("Payment failed. Please try again.");
         setBooking(false);
       });
       rzp.open();
     } catch (err: any) {
-
       if (bookingId) {
-        await supabase
-          .from("bookings")
-          .update({ status: "payment_abandoned" })
-          .eq("id", bookingId)
-          .eq("status", "pending");
-
-        await supabase
-          .from("payments")
-          .update({
-            status: "abandoned",
-            failure_reason: "exception_during_payment_flow"
-          })
-          .eq("booking_id", bookingId)
-          .eq("status", "pending");
+        await api.post("/Payment/MarkPaymentAbandoned", { bookingId }).catch(() => { });
       }
 
-      toast.error(err?.message || "Payment failed");
+      toast.error(
+        err.response?.data?.message ||
+        err.message ||
+        "Payment failed"
+      );
       setBooking(false);
     }
   };
@@ -582,12 +476,15 @@ const SpaceDetail = () => {
       availableSlots.length === 0
     );
 
+  const selectedVehicleBooked = availableVehicles.find(v => v.id === selectedVehicleId)?.isBooked ?? false;
+
   const isBookingDisabled =
     !space.available ||
     bookingClosedToday ||
     booking ||
     !selectedDate ||
     !selectedVehicleId ||
+    selectedVehicleBooked ||
     isSlotUnavailable ||
     (filteredVehicleSlots.length > 0 && !selectedSlotId);
 
@@ -961,11 +858,13 @@ const SpaceDetail = () => {
                   onClick={handleBookNow}
                 >
                   <Clock className="w-4 h-4" />
-                  {!space.available || isSlotUnavailable
-                    ? "Unavailable"
-                    : booking
-                      ? "Processing..."
-                      : "Pay & Book Now"
+                  {selectedVehicleBooked
+                    ? "Vehicle Already Booked"
+                    : !space.available || isSlotUnavailable
+                      ? "Unavailable"
+                      : booking
+                        ? "Processing..."
+                        : "Pay & Book Now"
                   }
                 </Button>
               </div>
