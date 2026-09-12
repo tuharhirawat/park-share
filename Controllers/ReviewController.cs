@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using ParkMitra_BE.DTOs.Review;
 using ParkMitra_BE.Services;
 
 namespace ParkMitra_BE.Controllers
@@ -8,10 +9,12 @@ namespace ParkMitra_BE.Controllers
     public class ReviewController : ControllerBase
     {
         private readonly ReviewService _reviewService;
+        private readonly CurrentUserService _currentUserService;
 
-        public ReviewController(ReviewService reviewService)
+        public ReviewController(ReviewService reviewService, CurrentUserService currentUserService)
         {
             _reviewService = reviewService;
+            _currentUserService = currentUserService;
         }
 
         [HttpGet("space/{spaceId}")]
@@ -22,6 +25,21 @@ namespace ParkMitra_BE.Controllers
         {
             var reviews = await _reviewService.GetSpaceReviewsAsync(spaceId, page, limit);
             return Ok(reviews);
+        }
+
+        [HttpPost("Submit")]
+        public async Task<IActionResult> SubmitReview([FromBody] SubmitReviewRequestDto dto)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken)) return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (currentUser == null) return Unauthorized();
+
+            var result = await _reviewService.SubmitReviewAsync(currentUser.UserId, dto);
+
+            if (!result.Success) return BadRequest(result);
+            return Ok(result);
         }
     }
 }

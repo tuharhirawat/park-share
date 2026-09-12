@@ -186,14 +186,8 @@ namespace ParkMitra_BE.Services
             if (bookings.Count == 0)
                 return new List<MyBookingsDto>();
 
-            var bookingIds = bookings
-                .Select(b => b.id)
-                .ToList();
-
-            var spaceIds = bookings
-                .Select(b => b.space_id)
-                .Distinct()
-                .ToList();
+            var bookingIds = bookings.Select(b => b.id).ToList();
+            var spaceIds = bookings.Select(b => b.space_id).Distinct().ToList();
 
             var slotIds = bookings
                 .Where(b => b.slot_id.HasValue)
@@ -215,6 +209,11 @@ namespace ParkMitra_BE.Services
                 .Where(v => vehicleIds.Contains(v.id))
                 .ToDictionaryAsync(v => v.id);
 
+            // One dictionary for reviews — replaces the old reviewedBookingIds/reviewedSet pair
+            var myReviews = await _context.reviews
+                .Where(r => bookingIds.Contains(r.booking_id))
+                .ToDictionaryAsync(r => r.booking_id);
+
             // Latest APPROVED/PENDING title update per space
             var titleUpdates = await _context.parking_space_update_requests
                 .Where(u => u.field == "title"
@@ -226,13 +225,6 @@ namespace ParkMitra_BE.Services
             var latestTitleBySpace = titleUpdates
                 .GroupBy(u => u.space_id)
                 .ToDictionary(g => g.Key, g => g.First());
-
-            var reviewedBookingIds = await _context.reviews
-                .Where(r => bookingIds.Contains(r.booking_id))
-                .Select(r => r.booking_id)
-                .ToListAsync();
-
-            var reviewedSet = reviewedBookingIds.ToHashSet();
 
             return bookings.Select(b =>
             {
@@ -247,6 +239,8 @@ namespace ParkMitra_BE.Services
                             ? $"{update.new_value} (previously {update.old_value})"
                             : update.new_value ?? update.old_value ?? b.space_title;
                 }
+
+                myReviews.TryGetValue(b.id, out var review);
 
                 return new MyBookingsDto
                 {
@@ -268,7 +262,7 @@ namespace ParkMitra_BE.Services
                     CreatedAt = b.created_at,
                     VehicleType = b.vehicle_type,
                     VehicleId = b.vehicle_id,
-                    VehicleNumber = b.vehicle_id.HasValue && 
+                    VehicleNumber = b.vehicle_id.HasValue &&
                                     vehicles.TryGetValue(b.vehicle_id.Value, out var vehicle)
                                         ? vehicle.registration_number
                                         : null,
@@ -279,7 +273,9 @@ namespace ParkMitra_BE.Services
                                     : null,
                     HasUsedFreeExtension = b.has_used_free_extension,
                     FreeExtensionMinutesUsed = b.free_extension_minutes_used,
-                    HasReview = reviewedSet.Contains(b.id)
+                    HasReview = review != null,
+                    Rating = review?.rating,
+                    ReviewText = review?.review_text,
                 };
             }).ToList();
         }

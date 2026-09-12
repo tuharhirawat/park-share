@@ -14,6 +14,8 @@ namespace ParkMitra_BE.DTOs.Booking
         public string SpaceTimezone { get; set; } = string.Empty;
         public int DurationMinutes { get; set; }
         public decimal TotalPrice { get; set; }
+        public int? Rating { get; set; }
+        public string? ReviewText { get; set; }
         public BookingStatus Status { get; set; }
         public ComputedBookingStatus ComputedStatus { get; set; } // upcoming / active / completed / cancelled
         public DateOnly? BookingDate { get; set; }
