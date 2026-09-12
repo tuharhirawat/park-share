@@ -131,6 +131,12 @@ public partial class ApplicationDbContext : DbContext
                 v => v.ToString().ToLower(),
                 v => Enum.Parse<BookingStatus>(v, true)
             );
+
+            entity.Property(e => e.vehicle_type).HasConversion(
+                v => v.ToString().ToLower(),
+                v => Enum.Parse<VehicleType>(v, true)
+            );
+
         });
 
         modelBuilder.Entity<contact_message>(entity =>

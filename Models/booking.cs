@@ -32,7 +32,7 @@ public partial class booking
 
     public TimeOnly? end_time { get; set; }
 
-    public string vehicle_type { get; set; } = null!;
+    public VehicleType vehicle_type { get; set; }
 
     public Guid? vehicle_id { get; set; }
 

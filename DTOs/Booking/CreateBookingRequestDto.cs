@@ -1,4 +1,6 @@
-﻿namespace ParkMitra_BE.DTOs.Booking
+﻿using ParkMitra_BE.Enums;
+
+namespace ParkMitra_BE.DTOs.Booking
 {
     public class CreateBookingRequestDto
     {
@@ -8,7 +10,7 @@
         public TimeOnly EndTime { get; set; }
         public bool IsFullDay { get; set; }
         public Guid VehicleId { get; set; }
-        public string VehicleType { get; set; } = string.Empty;
+        public VehicleType VehicleType { get; set; }
         public Guid? SlotId { get; set; }
     }
 }

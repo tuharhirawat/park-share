@@ -25,10 +25,10 @@ namespace ParkMitra_BE.Services
             _bookingService = bookingService;
         }
 
-        public async Task<CreatePaymentOrderResultDto> CreatePaymentOrderAsync(Guid userId, Guid bookingId)
+        public async Task<CreatePaymentOrderResultDto> CreatePaymentOrderAsync(Guid userId, Guid paymentId)
         {
             var payment = await _context.payments
-                .FirstOrDefaultAsync(p => p.booking_id == bookingId && p.user_id == userId);
+                .FirstOrDefaultAsync(p => p.id == paymentId && p.user_id == userId);
 
             if (payment == null || payment.total_payable == null)
                 return new CreatePaymentOrderResultDto { Success = false, Message = "Booking not found." };
@@ -37,10 +37,12 @@ namespace ParkMitra_BE.Services
                 return new CreatePaymentOrderResultDto { Success = false, Message = "This booking is not awaiting payment." };
 
             var amountInPaise = (int)Math.Round(payment.total_payable.Value * 100, MidpointRounding.AwayFromZero);
-            var receipt = $"bk_{bookingId.ToString("N")[..8]}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+            var receipt = $"pay_{paymentId.ToString("N")[..8]}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
 
             var response = await _paymentGatewayClient.CreateOrderAsync(
-                amountInPaise, "INR", receipt, new { booking_id = bookingId, user_id = userId });
+                amountInPaise, "INR", receipt, 
+                new { payment_id = payment.id, booking_id = payment.booking_id, user_id = userId }
+            );
 
             if (!response.IsSuccessStatusCode)
                 return new CreatePaymentOrderResultDto { Success = false, Message = "Failed to create payment order." };
@@ -65,19 +67,13 @@ namespace ParkMitra_BE.Services
         public async Task<ApiResponseDto> VerifyPaymentAsync(Guid userId, VerifyPaymentRequestDto dto)
         {
             var payment = await _context.payments
-                .FirstOrDefaultAsync(p => p.booking_id == dto.BookingId && p.user_id == userId);
+                .FirstOrDefaultAsync(p => p.razorpay_order_id == dto.RazorpayOrderId && p.user_id == userId);
 
-            if (payment?.status == PaymentStatus.Paid)
-            {
-                return new ApiResponseDto
-                {
-                    Success = true,
-                    Message = "Booking already confirmed."
-                };
-            }
-
-            if (payment == null || payment.razorpay_order_id != dto.RazorpayOrderId)
+            if (payment == null)
                 return new ApiResponseDto { Success = false, Message = "Payment record not found." };
+
+            if (payment.status == PaymentStatus.Paid)
+                return new ApiResponseDto { Success = true, Message = "Already confirmed." };
 
             if (!_paymentGatewayClient.VerifySignature(dto.RazorpayOrderId, dto.RazorpayPaymentId, dto.RazorpaySignature))
             {
@@ -87,15 +83,25 @@ namespace ParkMitra_BE.Services
                 return new ApiResponseDto { Success = false, Message = "Payment verification failed." };
             }
 
-            var bookingEntity = await _context.bookings.FirstOrDefaultAsync(b => b.id == dto.BookingId);
+            if (payment.payment_type == "booking")
+            {
+                var bookingEntity = await _context.bookings.FirstOrDefaultAsync(b => b.id == payment.booking_id);
+                if (bookingEntity?.booking_date == null || bookingEntity.start_time == null || bookingEntity.end_time == null)
+                    return new ApiResponseDto { Success = false, Message = "Booking not found." };
 
-            if (bookingEntity?.booking_date == null || bookingEntity.start_time == null || bookingEntity.end_time == null)
-                return new ApiResponseDto { Success = false, Message = "Booking not found." };
+                return await CompletePaymentAsync(payment, bookingEntity, dto.RazorpayPaymentId);
+            }
 
-            return await CompletePaymentAsync(
-                payment,
-                bookingEntity,
-                dto.RazorpayPaymentId);
+            // reschedule / future extension — just mark paid; the actual booking mutation
+            // happens in ConfirmReschedule, which now requires this row to be Paid first.
+            payment.status = PaymentStatus.Paid;
+            payment.razorpay_payment_id = dto.RazorpayPaymentId;
+            payment.payment_stage = "completed";
+            payment.verified_at = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            return new ApiResponseDto { Success = true, Message = "Payment confirmed. Applying change..." };
         }
 
         public async Task SyncPaymentStatusFromGatewayAsync(string requestBody)

@@ -68,5 +68,60 @@ namespace ParkMitra_BE.Controllers
 
             return Ok(bookings);
         }
+
+        [HttpPost("PreviewReschedule")]
+        public async Task<IActionResult> PreviewReschedule(RescheduleBookingRequestDto dto)
+        {
+            var accessToken = Request.Cookies["access_token"];
+
+            if (string.IsNullOrEmpty(accessToken))
+                return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+
+            if (currentUser == null)
+                return Unauthorized();
+
+            var result = await _bookingService.PreviewRescheduleAsync(currentUser.UserId, dto);
+
+            if (!result.Success)
+                return BadRequest(result);
+
+            return Ok(result);
+        }
+
+        [HttpPost("ConfirmReschedule")]
+        public async Task<IActionResult> ConfirmReschedule(RescheduleBookingRequestDto dto)
+        {
+            var accessToken = Request.Cookies["access_token"];
+
+            if (string.IsNullOrEmpty(accessToken))
+                return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+
+            if (currentUser == null)
+                return Unauthorized();
+
+            var result = await _bookingService.ConfirmRescheduleAsync(currentUser.UserId, dto);
+
+            if (!result.Success)
+                return BadRequest(result);
+
+            return Ok(result);
+        }
+
+        [HttpPost("Cancel/{id}")]
+        public async Task<IActionResult> Cancel(Guid id)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken)) return Unauthorized();
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (currentUser == null) return Unauthorized();
+
+            var result = await _bookingService.CancelAsync(currentUser.UserId, id);
+            if (!result.Success) return BadRequest(result);
+            return Ok(result);
+        }
     }
 }

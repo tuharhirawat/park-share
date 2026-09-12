@@ -243,7 +243,8 @@ namespace ParkMitra_BE.Services
                     ImageUrls = s.image_urls,
                     Lat = s.lat,
                     Lng = s.lng,
-                    Available = s.available
+                    Available = s.available,
+                    Timezone =s.timezone
                 };
             }).ToList();
         }
@@ -289,7 +290,8 @@ namespace ParkMitra_BE.Services
                 ImageUrls = space.image_urls,
                 Lat = space.lat,
                 Lng = space.lng,
-                Available = space.available
+                Available = space.available,
+                Timezone = space.timezone
             };
         }
 

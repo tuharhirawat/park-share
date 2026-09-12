@@ -4,5 +4,6 @@
     {
         public Guid? BookingId { get; set; }
         public decimal? TotalPayable { get; set; }
+        public Guid PaymentId { get; set; }
     }
 }

@@ -21,17 +21,25 @@ namespace ParkMitra_BE.Controllers
         }
 
         [HttpPost("CreatePaymentOrder")]
-        public async Task<IActionResult> CreatePaymentOrder([FromBody] BookingIdRequestDto request)
+        public async Task<IActionResult> CreatePaymentOrder([FromBody] CreatePaymentOrderRequestDto request)
         {
             var accessToken = Request.Cookies["access_token"];
-            if (string.IsNullOrEmpty(accessToken)) return Unauthorized();
+
+            if (string.IsNullOrEmpty(accessToken))
+                return Unauthorized();
 
             var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
-            if (currentUser == null) return Unauthorized();
 
-            var result = await _paymentService.CreatePaymentOrderAsync(currentUser.UserId, request.BookingId);
+            if (currentUser == null)
+                return Unauthorized();
 
-            if (!result.Success) return BadRequest(result);
+            var result = await _paymentService.CreatePaymentOrderAsync(
+                    currentUser.UserId,
+                    request.PaymentId);
+
+            if (!result.Success)
+                return BadRequest(result);
+
             return Ok(result);
         }
 
