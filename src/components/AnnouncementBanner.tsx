@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { AnimatePresence, motion } from "framer-motion";
 
 const announcement = {
-  enabled: true,
+  enabled: false,
   message:
     "We will undergo scheduled maintenance Sunday 2:00-3:00 AM IST. During this period bookings and payments may be temporarily unavailable.",
 };
@@ -17,7 +17,7 @@ const AnnouncementBanner = () => {
     if (!announcement.enabled) return;
 
     const key = user
-      ? `banner-dismissed-${user.id}`
+      ? `banner-dismissed-${user.userId}`
       : "banner-dismissed-guest";
 
     const dismissed = sessionStorage.getItem(key);
@@ -27,7 +27,7 @@ const AnnouncementBanner = () => {
 
   const handleClose = () => {
     const key = user
-      ? `banner-dismissed-${user.id}`
+      ? `banner-dismissed-${user.userId}`
       : "banner-dismissed-guest";
 
     sessionStorage.setItem(key, "true");

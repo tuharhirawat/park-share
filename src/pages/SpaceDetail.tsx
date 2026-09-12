@@ -4,53 +4,46 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import SpaceImageCarousel from "@/components/SpaceImageCarousel";
-import { Star, MapPin, Shield, Clock, Car, Bike, ArrowLeft, CalendarIcon, Loader2 } from "lucide-react";
+import { Star, MapPin, Shield, Clock, ArrowLeft, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase } from "@/integrations/supabase/client";
-import api from "@/services/api"
+import api from "@/services/api";
 import { toast } from "sonner";
-import { Calendar } from "@/components/ui/calendar";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
 import { useParkingSpaceDetails } from "@/hooks/useParkingSpaces";
 import ApproximateLocationMap from "@/components/ApproximateLocationMap";
 import ReviewsList from "@/components/ReviewsList";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select";
-import { getCurrentTime, isToday, isPastTime } from "@/lib/time";
 import AuthRequiredModal from "@/components/AuthRequiredModal";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
-import { calculatePricing } from "@/lib/pricingCalculator";
-
-declare global {
-  interface Window {
-    Razorpay: any;
-  }
-}
-
-interface UserVehicle {
-  id: string;
-  vehicle_type: string;
-  brand_model: string;
-  registration_number: string;
-  isBooked?: boolean;
-}
-
-interface ParkingSlot {
-  id: string;
-  label: string;
-  vehicle_type: string;
-  is_active: boolean;
-}
-
-const MIN_DURATION = 30;
-const STEP_DURATION = 15;
-const END_OF_DAY_MINUTES = (23 * 60) + 59;
-const LATEST_VALID_START = END_OF_DAY_MINUTES - MIN_DURATION;
-
-const formatTime = (t: string) => t.length === 5 ? `${t}:00` : t;
+import BookingPriceSummary from "@/components/SpaceDetails/BookingPriceSummary";
+import BookingDatePicker from "@/components/SpaceDetails/BookingDatePicker";
+import VehicleSelector from "@/components/SpaceDetails/VehicleSelector";
+import SlotSelector from "@/components/SpaceDetails/SlotSelector";
+import ErrorNotice from "@/components/ui/ErrorNotice";
+import TimeWarningDialog from "@/components/SpaceDetails/TimeWarningDialog";
+import { UserVehicle } from "@/types/vehicle";
+import { ParkingSlot } from "@/types/parking";
+import { vehicleIcons } from "@/constants/vehicleIcons";
+import { useRazorpayScript } from "@/hooks/useRazorpayScript";
+import { openRazorpayCheckout } from "@/lib/razorpayCheckout";
+import DurationStepper from "@/components/DurationStepper";
+import { getBookingTimeRange, calculateEffectiveHours } from "@/lib/spaceDetailHelpers";
+import {
+  getCurrentDateTimeInTimezone,
+  isTodayInTimezone,
+  isPastTime,
+  toMinutes,
+  formatTimeForDB,
+  addMinutesToTime,
+} from "@/lib/time";
+import {
+  MIN_DURATION,
+  STEP_DURATION,
+  END_OF_DAY_MINUTES,
+  LATEST_VALID_START,
+  DEFAULT_START_TIME,
+  DEFAULT_DURATION,
+} from "@/constants/spaceDetailsConstants";
 
 const SpaceDetail = () => {
   const { id } = useParams();
@@ -58,10 +51,11 @@ const SpaceDetail = () => {
   const { user } = useAuth();
   const { authOpen, setAuthOpen, requireAuth, redirectPath } = useAuthGuard();
   const { data: space, isLoading } = useParkingSpaceDetails(id);
+  useRazorpayScript();
 
   const [isFullDay, setIsFullDay] = useState(false);
-  const [startTime, setStartTime] = useState("09:00");
-  const [duration, setDuration] = useState(30);  //30 mins default minimum duration
+  const [startTime, setStartTime] = useState(DEFAULT_START_TIME);
+  const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [booking, setBooking] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [selectedVehicle, setSelectedVehicle] = useState<string>("");
@@ -70,7 +64,7 @@ const SpaceDetail = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [bookingClosedToday, setBookingClosedToday] = useState(false);
   const [timeWarningOpen, setTimeWarningOpen] = useState(false);
-  const [lastValidTime, setLastValidTime] = useState("09:00");
+  const [lastValidTime, setLastValidTime] = useState(DEFAULT_START_TIME);
   const [bookedVehicleIds, setBookedVehicleIds] = useState<string[]>([]);
   const [bookedSlotIds, setBookedSlotIds] = useState<string[]>([]);
 
@@ -87,10 +81,7 @@ const SpaceDetail = () => {
   const [debouncedStartTime, setDebouncedStartTime] = useState(startTime);
   const [debouncedDuration, setDebouncedDuration] = useState(duration);
 
-  const filteredVehicleSlots =
-    slots.filter(
-      s => s.vehicle_type === selectedVehicle
-    );
+  const filteredVehicleSlots = slots.filter(s => s.vehicle_type === selectedVehicle);
 
   // Fetch user vehicles
   useEffect(() => {
@@ -111,10 +102,17 @@ const SpaceDetail = () => {
       .catch(() => setLoadingVehicles(false));
   }, [user]);
 
-  // Fetch all slots for this space
+  // Fetch slots only for logged-in users
   useEffect(() => {
-    if (!space?._dbId) return;
+    if (!user || !space?._dbId) {
+      setSlots([]);
+      setAvailableSlots([]);
+      setLoadingSlots(false);
+      return;
+    }
+
     setLoadingSlots(true);
+
     api.get(`/ParkingSpace/${space._dbId}/AvailableSlots`)
       .then((response) => {
         setSlots(
@@ -125,68 +123,65 @@ const SpaceDetail = () => {
             is_active: s.isActive,
           }))
         );
-        setLoadingSlots(false);
       })
-      .catch(() => setLoadingSlots(false));
-  }, [space]);
+      .catch(() => {
+        setSlots([]);
+        setAvailableSlots([]);
+      })
+      .finally(() => {
+        setLoadingSlots(false);
+      });
+  }, [user, space?._dbId]);
 
   useEffect(() => {
     if (!selectedDate) {
       setBookingClosedToday(false);
       return;
     }
-    if (!isToday(selectedDate)) {
+    if (!isTodayInTimezone(selectedDate, space.timezone)) {
       setBookingClosedToday(false);
       return;
     }
-    const now = getCurrentTime();
-    if (timeToMinutes(now) > LATEST_VALID_START) {
+    const now = getCurrentDateTimeInTimezone(space.timezone).time;
+    if (toMinutes(now) > LATEST_VALID_START) {
       setBookingClosedToday(true);
       setSelectedSlotId("");
       return;
     }
     setBookingClosedToday(false);
-    if (isPastTime(selectedDate, startTime)) {
+    if (isPastTime(selectedDate, startTime, space.timezone)) {
       setStartTime(now);
       setSelectedSlotId("");
     }
   }, [selectedDate, startTime]);
 
   useEffect(() => {
-    if (
-      timeToMinutes(startTime)
-      <= LATEST_VALID_START
-    ) {
+    if (toMinutes(startTime) <= LATEST_VALID_START) {
       setLastValidTime(startTime);
     }
   }, [startTime]);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !space?._dbId || !selectedDate) {
       setBookedVehicleIds([]);
       setBookedSlotIds([]);
       return;
     }
 
-    if (!space?._dbId || !selectedDate) {
-      setBookedVehicleIds([]);
-      setBookedSlotIds([]);
+    if (!isFullDay && isTodayInTimezone(selectedDate, space.timezone) && isPastTime(selectedDate, startTime, space.timezone)) {
       return;
     }
 
-    if (!isFullDay && isToday(selectedDate) && isPastTime(selectedDate, startTime)) {
-      return;
-    }
-
-    const actualStartTime = isFullDay ? "00:00" : startTime;
-    const actualEndTime = isFullDay ? "23:59" : calculateEndTime(startTime, duration);
+    const { startTime: actualStartTime, endTime: actualEndTime } = getBookingTimeRange(
+      selectedDate, isFullDay, startTime, duration, space.timezone
+    );
 
     api.get("/Booking/GetSpaceBookingAvailability", {
       params: {
         spaceId: space._dbId,
         date: format(selectedDate, "yyyy-MM-dd"),
-        startTime: formatTime(actualStartTime),
-        endTime: formatTime(actualEndTime),
+        startTime: formatTimeForDB(actualStartTime),
+        endTime: formatTimeForDB(actualEndTime),
       },
     })
       .then((response) => {
@@ -197,7 +192,6 @@ const SpaceDetail = () => {
         setBookedVehicleIds([]);
         setBookedSlotIds([]);
       });
-
   }, [user, space?._dbId, selectedDate, debouncedStartTime, debouncedDuration, isFullDay]);
 
   useEffect(() => {
@@ -228,41 +222,12 @@ const SpaceDetail = () => {
     return () => clearTimeout(timer);
   }, [startTime, duration]);
 
-  const calculateEndTime = (start: string, duration: number) => {
-    const [h, m] = start.split(":").map(Number);
-    const totalMinutes = h * 60 + m + duration;
-
-    const endH = Math.floor(totalMinutes / 60);
-    const endM = totalMinutes % 60;
-
-    return `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
-  };
-
-  const timeToMinutes = (time: string) => {
-    const [h, m] = time.split(":").map(Number);
-    return h * 60 + m;
-  };
-
-  const canIncrease = timeToMinutes(startTime) + duration + STEP_DURATION <= END_OF_DAY_MINUTES;
+  const canIncrease = toMinutes(startTime) + duration + STEP_DURATION <= END_OF_DAY_MINUTES;
   const canDecrease = duration > MIN_DURATION;
 
   const updateDuration = (minutes: number) => {
     setDuration(minutes);
     setSelectedSlotId("");
-  }
-
-  const calculateHours = () => {
-    if (!selectedDate) return 0;
-    if (isFullDay) {
-      if (isToday(selectedDate)) {
-        const now = new Date();
-        const endOfDay = new Date(selectedDate);
-        endOfDay.setHours(23, 59, 0, 0);
-        return (endOfDay.getTime() - now.getTime()) / (1000 * 60 * 60);
-      }
-      return 24;
-    }
-    return duration / 60;
   };
 
   const validateBooking = (): boolean => {
@@ -270,32 +235,21 @@ const SpaceDetail = () => {
     if (!selectedDate) newErrors.date = "Please select a date";
     if (!selectedVehicleId) newErrors.vehicle = "Please select a vehicle";
     if (!isFullDay && selectedDate) {
-      if (isPastTime(selectedDate, startTime)) {
+      if (isPastTime(selectedDate, startTime, space.timezone)) {
         newErrors.startTime = "Start time cannot be in the past";
       }
     }
     if (!isFullDay) {
       if (!startTime) newErrors.startTime = "Start time is required";
-      if (duration < 30) newErrors.duration = "Duration must be at least 30 minutes";
-      // if (effectiveHours > 18) newErrors.endTime = "Maximum 18 hours per booking — consider full day";
+      if (duration < MIN_DURATION) newErrors.duration = `Duration must be at least ${MIN_DURATION} minutes`;
     }
+
     // Slot selection required if slots exist
     if (filteredVehicleSlots.length > 0 && !selectedSlotId) {
       newErrors.slot = "Please select a parking slot";
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  };
-
-  const loadRazorpayScript = (): Promise<boolean> => {
-    return new Promise((resolve) => {
-      if (window.Razorpay) return resolve(true);
-      const script = document.createElement("script");
-      script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
-      document.body.appendChild(script);
-    });
   };
 
   const handleBookNow = async () => {
@@ -310,28 +264,25 @@ const SpaceDetail = () => {
       return;
     }
     if (!validateBooking()) return;
-    if (!isFullDay && selectedDate) {
-      if (isPastTime(selectedDate, startTime)) {
-        toast.error("Selected time is no longer valid");
-        setBooking(false);
-        return;
-      }
+    if (!isFullDay && selectedDate && isPastTime(selectedDate, startTime, space.timezone)) {
+      toast.error("Selected time is no longer valid");
+      setBooking(false);
+      return;
     }
 
     setBooking(true);
     let bookingId: string | null = null;
 
     try {
-      const dbSpaceId = space._dbId!;
-      const actualStartTime = isFullDay ? "00:00" : startTime;
-      const actualEndTime = isFullDay ? "23:59" : calculateEndTime(startTime, duration);
+      const { startTime: actualStartTime, endTime: actualEndTime } = getBookingTimeRange(
+        selectedDate, isFullDay, startTime, duration, space.timezone
+      );
 
-      // Check capacity before proceeding
       const createResponse = await api.post("/Booking/CreateBooking", {
-        spaceId: dbSpaceId,
+        spaceId: space._dbId!,
         bookingDate: format(selectedDate!, "yyyy-MM-dd"),
-        startTime: formatTime(actualStartTime),
-        endTime: formatTime(actualEndTime),
+        startTime: formatTimeForDB(actualStartTime),
+        endTime: formatTimeForDB(actualEndTime),
         isFullDay,
         vehicleId: selectedVehicleId,
         vehicleType: selectedVehicle,
@@ -349,30 +300,24 @@ const SpaceDetail = () => {
       }
 
       bookingId = createResponse.data.bookingId;
-      const totalPayable = createResponse.data.totalPayable;
+      const paymentId = createResponse.data.paymentId;
 
-      const loaded = await loadRazorpayScript();
-      if (!loaded) throw new Error("Failed to load payment gateway");
-
-      const orderResponse = await api.post("/Payment/CreatePaymentOrder", { bookingId });
-
+      const orderResponse = await api.post("/Payment/CreatePaymentOrder", { paymentId });
       if (!orderResponse.data.success) {
         throw new Error(orderResponse.data.message || "Failed to create payment order");
       }
 
       const { orderId, keyId, amountInPaise } = orderResponse.data;
+      const currentBookingId = bookingId;
 
-      const options = {
-        key: keyId,
-        amount: amountInPaise,
-        currency: "INR",
-        name: "Park Mitra",
+      openRazorpayCheckout({
+        order: { orderId, keyId, amountInPaise },
         description: `Parking: ${space.title}`,
-        order_id: orderId,
-        handler: async (response: any) => {
+        email: user.email,
+        onSuccess: async (response) => {
           try {
             const verifyResponse = await api.post("/Payment/VerifyPayment", {
-              bookingId,
+              bookingId: currentBookingId,
               razorpayOrderId: response.razorpay_order_id,
               razorpayPaymentId: response.razorpay_payment_id,
               razorpaySignature: response.razorpay_signature,
@@ -394,38 +339,21 @@ const SpaceDetail = () => {
           }
           setBooking(false);
         },
-        prefill: { email: user.email },
-        theme: { color: "#2a9d7c" },
-        modal: {
-          ondismiss: async () => {
-            if (bookingId) {
-              await api.post("/Payment/MarkPaymentAbandoned", { bookingId });
-            }
-            setBooking(false);
-          }
+        onFailure: async () => {
+          await api.post("/Payment/MarkPaymentFailed", { bookingId: currentBookingId });
+          toast.error("Payment failed. Please try again.");
+          setBooking(false);
         },
-      };
-
-      const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", async () => {
-        if (bookingId) {
-          await api.post("/Payment/MarkPaymentFailed", { bookingId });
-        }
-
-        toast.error("Payment failed. Please try again.");
-        setBooking(false);
+        onDismiss: async () => {
+          await api.post("/Payment/MarkPaymentAbandoned", { bookingId: currentBookingId });
+          setBooking(false);
+        },
       });
-      rzp.open();
     } catch (err: any) {
       if (bookingId) {
         await api.post("/Payment/MarkPaymentAbandoned", { bookingId }).catch(() => { });
       }
-
-      toast.error(
-        err.response?.data?.message ||
-        err.message ||
-        "Payment failed"
-      );
+      toast.error(err.response?.data?.message || err.message || "Payment failed");
       setBooking(false);
     }
   };
@@ -449,33 +377,10 @@ const SpaceDetail = () => {
     );
   }
 
-  const effectiveHours = calculateHours();
-  let basePrice = 0;
+  const effectiveHours = calculateEffectiveHours(selectedDate, isFullDay, duration, space.timezone);
 
-  if (isFullDay) {
-    if (selectedDate && isToday(selectedDate)) {
-      basePrice = Math.round(space.pricePerHour * effectiveHours);
-    } else {
-      basePrice = space.pricePerDay;
-    }
-  } else {
-    basePrice = Math.round(space.pricePerHour * effectiveHours);
-  }
-
-  const pricing = calculatePricing(basePrice);
-  const totalPrice = pricing.totalPayable;
-
-  const hasSlotsForVehicle = slots.some(
-    s => s.vehicle_type === selectedVehicle
-  );
-
-  const isSlotUnavailable =
-    selectedVehicle &&
-    (
-      !hasSlotsForVehicle ||
-      availableSlots.length === 0
-    );
-
+  const hasSlotsForVehicle = slots.some(s => s.vehicle_type === selectedVehicle);
+  const isSlotUnavailable = selectedVehicle && (!hasSlotsForVehicle || availableSlots.length === 0);
   const selectedVehicleBooked = availableVehicles.find(v => v.id === selectedVehicleId)?.isBooked ?? false;
 
   const isBookingDisabled =
@@ -488,14 +393,7 @@ const SpaceDetail = () => {
     isSlotUnavailable ||
     (filteredVehicleSlots.length > 0 && !selectedSlotId);
 
-  const vehicleIcons: Record<string, React.ReactNode> = {
-    Bike: <Bike className="w-4 h-4" />,
-    Car: <Car className="w-4 h-4" />,
-  };
-
-  const availableVehicleCount = availableVehicles.filter(
-    v => !v.isBooked
-  ).length;
+  const availableVehicleCount = availableVehicles.filter(v => !v.isBooked).length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -507,12 +405,14 @@ const SpaceDetail = () => {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
-              {/* Premium Hero Gallery */}
+
+              {/* Space Photos */}
               <SpaceImageCarousel
                 title={space.title}
                 images={space.images}
                 image={space.image}
               />
+
               <div>
                 <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground mb-2">
                   {space.title}
@@ -553,70 +453,28 @@ const SpaceDetail = () => {
                 </div>
 
                 {/* Date picker */}
-                <div>
-                  <label className="text-sm font-semibold text-foreground mb-2 block">Date</label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !selectedDate && "text-muted-foreground", errors.date && "border-destructive")}>
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {selectedDate ? format(selectedDate, "PPP") : "Pick a date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
-                      <Calendar mode="single" selected={selectedDate} onSelect={(d) => { setSelectedDate(d); setSelectedSlotId(""); setErrors(prev => ({ ...prev, date: "" })); }} disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))} initialFocus />
-                    </PopoverContent>
-                  </Popover>
-                  {errors.date && <p className="text-xs text-destructive mt-1">{errors.date}</p>}
-                </div>
+                <BookingDatePicker
+                  selectedDate={selectedDate}
+                  setSelectedDate={setSelectedDate}
+                  setSelectedSlotId={setSelectedSlotId}
+                  errors={errors}
+                  setErrors={setErrors}
+                  timezone={space.timezone}
+                />
 
                 {/* Vehicle selector */}
-                <div>
-                  <label className="text-sm font-semibold text-foreground mb-2 block">Select Vehicle</label>
-                  {loadingVehicles ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div>
-                  ) : availableVehicleCount === 0 ? (
-                    <div className="text-sm text-muted-foreground">
-                      <p>No available vehicles for selected time.</p>
-                      <Button
-                        variant="link"
-                        className="p-0 h-auto text-primary"
-                        onClick={() =>
-                          requireAuth(
-                            () => navigate("/vehicles"),
-                            "/vehicles"
-                          )
-                        }
-                      >
-                        Add a vehicle →
-                      </Button>
-                    </div>
-                  ) : (
-                    <Select value={selectedVehicleId} onValueChange={(vid) => {
-                      setSelectedVehicleId(vid);
-                      const veh = availableVehicles.find(v => v.id === vid);
-                      if (veh && !veh.isBooked) setSelectedVehicle(veh.vehicle_type.toLowerCase());
-                      setSelectedSlotId("");
-                      setErrors(prev => ({ ...prev, vehicle: "" }));
-                    }}>
-                      <SelectTrigger className={cn(errors.vehicle && "border-destructive")}>
-                        <SelectValue placeholder="Choose your vehicle" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableVehicles.map((v) => (
-                          <SelectItem
-                            key={v.id}
-                            value={v.id}
-                            disabled={v.isBooked}
-                          >
-                            {v.brand_model} — {v.registration_number}
-                            {" ("} {v.vehicle_type} {")"} {v.isBooked && " 🔒 Booked"}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {errors.vehicle && <p className="text-xs text-destructive mt-1">{errors.vehicle}</p>}
-                </div>
+                <VehicleSelector
+                  loadingVehicles={loadingVehicles}
+                  availableVehicleCount={availableVehicleCount}
+                  availableVehicles={availableVehicles}
+                  selectedVehicleId={selectedVehicleId}
+                  setSelectedVehicleId={setSelectedVehicleId}
+                  setSelectedVehicle={setSelectedVehicle}
+                  setSelectedSlotId={setSelectedSlotId}
+                  errors={errors}
+                  setErrors={setErrors}
+                  requireAuth={requireAuth}
+                />
 
                 {/* Full day toggle */}
                 <div className="flex items-center justify-between">
@@ -625,7 +483,9 @@ const SpaceDetail = () => {
                     onCheckedChange={(v) => {
                       setIsFullDay(v);
                       setSelectedSlotId("");
-                      setStartTime(v ? "00:00" : getCurrentTime());
+                      if (!v) {
+                        setStartTime(getCurrentDateTimeInTimezone(space.timezone).time);
+                      }
                       setErrors(prev => ({ ...prev, startTime: "", duration: "" }));
                     }}
                   />
@@ -635,90 +495,45 @@ const SpaceDetail = () => {
                 {!isFullDay && !bookingClosedToday && (
                   <div className="space-y-3">
                     <label className="text-sm font-semibold text-foreground block">Time Range</label>
+                    {/* duration based time selection */}
                     <div className="space-y-3">
+                      <label className="text-sm font-semibold text-foreground block">Start Time</label>
+                      <Input
+                        type="time"
+                        value={startTime}
+                        min={isTodayInTimezone(selectedDate, space.timezone) ? getCurrentDateTimeInTimezone(space.timezone).time : "00:00"}
+                        max={"23:29"}
+                        onChange={(e) => {
+                          const value = e.target.value;
 
-                      {/* duration based time selection */}
-                      <div className="space-y-3">
-                        <label className="text-sm font-semibold text-foreground block">Start Time</label>
+                          if (selectedDate && isTodayInTimezone(selectedDate, space.timezone) && isPastTime(selectedDate, value, space.timezone)) {
+                            toast.error("Cannot select past time");
+                            return;
+                          }
 
-                        <Input
-                          type="time"
-                          value={startTime}
-                          min={isToday(selectedDate) ? getCurrentTime() : "00:00"}
-                          max={"23:29"}
-                          onChange={(e) => {
-                            const value = e.target.value;
+                          if (toMinutes(value) > LATEST_VALID_START) {
+                            setTimeWarningOpen(true);
+                            return;
+                          }
 
-                            if (selectedDate && isToday(selectedDate) && isPastTime(selectedDate, value)) {
-                              toast.error("Cannot select past time");
-                              return;
-                            }
+                          setStartTime(value);
+                          setSelectedSlotId("");
 
-                            if (timeToMinutes(value) > LATEST_VALID_START) {
-                              setTimeWarningOpen(true);
-                              return;
-                            }
+                          if (toMinutes(value) + duration > END_OF_DAY_MINUTES) {
+                            setDuration(MIN_DURATION);
+                          }
+                        }}
+                      />
 
-                            setStartTime(value);
-                            setSelectedSlotId("");
-
-                            if (
-                              timeToMinutes(value) + duration
-                              > END_OF_DAY_MINUTES
-                            ) {
-                              setDuration(MIN_DURATION);
-                            }
-                          }}
-                        />
-
-                        <label className="text-sm font-semibold text-foreground block">
-                          Duration
-                        </label>
-
-                        <div className="flex items-center justify-between border rounded-xl p-3">
-
-                          <button
-                            type="button"
-                            onClick={() => updateDuration(duration - STEP_DURATION)}
-                            disabled={!canDecrease}
-                            className={cn(
-                              "w-10 h-10 rounded-full border text-lg font-bold",
-                              !canDecrease &&
-                              "opacity-40 cursor-not-allowed"
-                            )}
-                          >
-                            -
-                          </button>
-
-                          <div className="text-center">
-                            <p className="font-semibold">
-                              {duration} mins
-                            </p>
-
-                            <p className="text-xs text-muted-foreground">
-                              {startTime} → {calculateEndTime(startTime, duration)}
-                            </p>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => updateDuration(duration + STEP_DURATION)}
-                            disabled={!canIncrease}
-                            className={cn(
-                              "w-10 h-10 rounded-full border text-lg font-bold",
-                              !canIncrease &&
-                              "opacity-40 cursor-not-allowed"
-                            )}
-                          >
-                            +
-                          </button>
-
-                        </div>
-
-                        {errors.duration && (
-                          <p className="text-xs text-destructive">{errors.duration}</p>
-                        )}
-                      </div>
+                      <label className="text-sm font-semibold text-foreground block">Duration</label>
+                      <DurationStepper
+                        minutes={duration}
+                        canDecrease={canDecrease}
+                        canIncrease={canIncrease}
+                        onDecrease={() => updateDuration(duration - STEP_DURATION)}
+                        onIncrease={() => updateDuration(duration + STEP_DURATION)}
+                        subtext={`${startTime} → ${addMinutesToTime(startTime, duration)}`}
+                      />
 
                       {/* free hand time selection */}
                       {/* <div>
@@ -726,10 +541,10 @@ const SpaceDetail = () => {
                         <Input
                           type="time"
                           value={startTime}
-                          min={isToday(selectedDate) ? getCurrentTime() : "00:00"}
+                          min={isTodayInTimezone(selectedDate, space.timezone) ? getCurrentDateTimeInTimezone(space.timezone).time : "00:00"}
                           onFocus={() => {
-                            if (isToday(selectedDate) && isPastTime(selectedDate, startTime)) {
-                              const now = getCurrentTime();
+                            if (isTodayInTimezone(selectedDate, space.timezone) && isPastTime(selectedDate, startTime)) {
+                              const now = getCurrentDateTimeInTimezone(space.timezone).time;
                               setStartTime(now);
                               setSelectedSlotId("");
                             }
@@ -737,7 +552,7 @@ const SpaceDetail = () => {
                           onChange={(e) => {
                             const value = e.target.value;
 
-                            if (selectedDate && isToday(selectedDate) && isPastTime(selectedDate, value)) {
+                            if (selectedDate && isTodayInTimezone(selectedDate, space.timezone) && isPastTime(selectedDate, value)) {
                               toast.error("Cannot select past time");
                               return;
                             }
@@ -775,6 +590,8 @@ const SpaceDetail = () => {
                         />
                         {errors.endTime && <p className="text-xs text-destructive mt-1">{errors.endTime}</p>}
                       </div> */}
+
+                      {errors.duration && <p className="text-xs text-destructive">{errors.duration}</p>}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       Duration: {effectiveHours > 0 ? `${effectiveHours.toFixed(1)} hours` : "Invalid range"}
@@ -783,75 +600,27 @@ const SpaceDetail = () => {
                 )}
 
                 {bookingClosedToday && (
-                  <div className="p-3 bg-destructive/10 rounded-lg border border-destructive/20">
-                    <p className="text-sm text-destructive">
-                      Booking is closed for today. Please select a future date.
-                    </p>
-                  </div>
+                  <ErrorNotice message="Booking is closed for today. Please select a future date." />
                 )}
 
                 {/* Slot selector */}
-                {selectedVehicle && filteredVehicleSlots.length > 0 && (
-                  <div>
-                    <label className="text-sm font-semibold text-foreground mb-2 block">Select Parking Slot</label>
-                    {loadingSlots ? (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading slots...</div>
-                    ) : (
-                      <div className="grid grid-cols-4 gap-2">
-                        {filteredVehicleSlots.map(slot => {
-                          const isAvailable = availableSlots.some(a => a.id === slot.id);
-                          const isSelected = selectedSlotId === slot.id;
-                          return (
-                            <button
-                              key={slot.id}
-                              type="button"
-                              disabled={!isAvailable}
-                              className={cn(
-                                "py-2 px-3 rounded-lg text-xs font-mono font-semibold border transition-colors",
-                                isSelected ? "bg-primary text-primary-foreground border-primary" :
-                                  isAvailable ? "bg-card border-border hover:border-primary/50 text-foreground" :
-                                    "bg-muted/50 text-muted-foreground border-border opacity-50 cursor-not-allowed line-through"
-                              )}
-                              onClick={() => { setSelectedSlotId(slot.id); setErrors(prev => ({ ...prev, slot: "" })); }}
-                            >
-                              {slot.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                    {errors.slot && <p className="text-xs text-destructive mt-1">{errors.slot}</p>}
-                    <p className="text-xs text-muted-foreground mt-1">{availableSlots.length} of {filteredVehicleSlots.length} available</p>
-                    {availableSlots.length === 0 && (
-                      <p className="text-xs text-destructive mt-2">
-                        No slots available for selected time
-                      </p>
-                    )}
-                  </div>
-                )}
+                <SlotSelector
+                  selectedVehicle={selectedVehicle}
+                  filteredVehicleSlots={filteredVehicleSlots}
+                  availableSlots={availableSlots}
+                  loadingSlots={loadingSlots}
+                  selectedSlotId={selectedSlotId}
+                  setSelectedSlotId={setSelectedSlotId}
+                  errors={errors}
+                  setErrors={setErrors}
+                />
 
-                <div className="border-t border-border pt-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      {isFullDay
-                        ? (selectedDate && isToday(selectedDate)
-                          ? `₹${space.pricePerHour} × ${effectiveHours.toFixed(1)} hrs`
-                          : "Full day rate")
-                        : `₹${space.pricePerHour} × ${effectiveHours.toFixed(1)} hrs`}
-                    </span>
-                    <span className="text-foreground font-medium">₹{basePrice}</span>
-                  </div>
-                  {pricing.serviceFee > 0 &&
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Service fee</span>
-                      <span className="text-foreground font-medium">₹{pricing.serviceFee}</span>
-                    </div>
-                  }
-                  <div className="flex justify-between font-bold text-foreground pt-2 border-t border-border">
-                    <span>Total</span>
-                    <span>₹{totalPrice}</span>
-                  </div>
-                </div>
+                <BookingPriceSummary
+                  space={space}
+                  isFullDay={isFullDay}
+                  selectedDate={selectedDate}
+                  effectiveHours={effectiveHours}
+                />
 
                 <Button className="w-full rounded-xl gap-2" size="lg"
                   disabled={isBookingDisabled}
@@ -871,45 +640,12 @@ const SpaceDetail = () => {
             </div>
           </div>
 
-          <Dialog
+          <TimeWarningDialog
             open={timeWarningOpen}
-            onOpenChange={(open) => {
-              if (!open) return;
-              setTimeWarningOpen(open);
-            }}
-          >
-            <DialogContent
-              className="w-[92vw] max-w-[420px] rounded-2xl p-6 sm:p-7 text-center mx-auto"
-              onPointerDownOutside={(e) => e.preventDefault()}
-              onEscapeKeyDown={(e) => e.preventDefault()}
-            >
-              <div className="flex flex-col items-center justify-center text-center space-y-5">
-                <DialogHeader className="w-full space-y-3 text-center">
-                  <DialogTitle
-                    className="text-lg sm:text-xl font-semibold text-center leading-snug w-full"
-                  >
-                    Booking Not Possible
-                  </DialogTitle>
-                </DialogHeader>
-
-                <p className="text-sm sm:text-base text-muted-foreground leading-relaxed text-center max-w-[280px] sm:max-w-[320px] mx-auto">
-                  Start time must be 23:29 or earlier to proceed with booking.
-                </p>
-
-                <Button
-                  className="w-full sm:w-full mt-2 rounded-xl"
-                  onClick={() => {
-                    setStartTime(lastValidTime);
-                    setTimeWarningOpen(false);
-                  }}
-                >
-                  Okay
-                </Button>
-
-              </div>
-
-            </DialogContent>
-          </Dialog>
+            setTimeWarningOpen={setTimeWarningOpen}
+            lastValidTime={lastValidTime}
+            setStartTime={setStartTime}
+          />
 
           <AuthRequiredModal
             open={authOpen}

@@ -3,14 +3,36 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, MapPin, Trash2, Loader2, Star, Filter, TimerReset, AlertCircle, Navigation } from "lucide-react";
+import { Loader2, Filter } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import ReduceTimeConfirmationModal from "@/components/booking/ReduceTimeConfirmationModal";
+import RescheduleConfirmationModal from "@/components/booking/RescheduleConfirmationModal";
 import api from "@/services/api";
+import RescheduleBookingDialog from "@/components/booking/RescheduleBookingDialog";
+import BookingCard from "@/components/booking/BookingCard";
+import CompletedBookingActions from "@/components/booking/CompletedBookingActions";
+import { useRazorpayScript } from "@/hooks/useRazorpayScript";
+import { openRazorpayCheckout } from "@/lib/razorpayCheckout";
+import { RescheduleTimeSlot, ReviewDraft } from "@/viewTypes/bookingUi";
+import { MAX_DAY_MINUTES } from "@/constants/bookingConstants";
+import { clampDurationToStart, calculateGraceToggle } from "@/lib/bookingHelpers";
+import {
+  Booking,
+  Review,
+  RescheduleConfirmation,
+} from "@/types/booking";
+import {
+  toMinutes,
+  validatePastTime,
+  addMinutesToTime,
+  formatTimeForDB,
+  getCurrentTime,
+  isTodayInTimezone,
+  getAppNow,
+  getAppToday,
+} from "@/lib/time";
 import {
   Select,
   SelectContent,
@@ -18,572 +40,43 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { getLatestDisplayValue } from "@/lib/spaceUpdates";
-import { RefreshCw } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { calculatePricing } from "@/lib/pricingCalculator";
-
-interface Booking {
-  id: string;
-  spaceId: string;
-  spaceTitle: string;
-  spaceAddress: string;
-  spaceCity: string;
-  spaceLat?: number;
-  spaceLng?: number;
-  durationMinutes: number;
-  totalPrice: number;
-  status: string;
-  computedStatus: string;
-  bookingDate: string | null;
-  startTime: string | null;
-  endTime: string | null;
-  createdAt: string;
-  vehicleType: string;
-  vehicleId: string | null;
-  slotId: string | null;
-  hasUsedFreeExtension: boolean;
-  freeExtensionMinutesUsed: number;
-  hasReview: boolean;
-}
-
-interface Review {
-  id: string;
-  booking_id: string;
-  rating: number;
-  review_text: string | null;
-}
-
-interface ExtensionConfirmation {
-  bookingId: string;
-  extraMinutes: number;
-  extraCost: number;
-  newTotalPrice: number;
-  canUseFreeExtension: boolean;
-  pricePerHour: number;
-  rescheduleDate: Date;
-  rescheduleStartTime: string;
-  rescheduleEndTime: string;
-  isPaidExtension: boolean;
-  freeMinutesApplied: number;
-  nextFreeExtensionMinutesUsed: number;
-  nextHasUsedFreeExtension: boolean;
-  type: "extend" | "reschedule"; // distinguish between extend and reschedule
-  parkingExtensionCost: number;
-  platformFee: number;
-  applyGraceExtension: boolean;
-}
-
-type RescheduleConfirmation = ExtensionConfirmation; // backward compatibility
-
-type ComputedStatus = "upcoming" | "active" | "completed" | "cancelled";
-
-const FREE_EXTENSION_MINUTES = 10;
-const EXTEND_STEP = 15;
-const MAX_DAY_MINUTES = (23 * 60) + 59;
-
-const displayTime = (t: string | null) => (t ? t.slice(0, 5) : "--:--");
-
-const canExtendBooking = (booking: Booking) => {
-  const end = toMinutes(booking.endTime?.slice(0, 5) || "00:00");
-  return end + EXTEND_STEP <= MAX_DAY_MINUTES;
-};
-
-const toMinutes = (time: string) => {
-  const [hours, minutes] = time.split(":").map(Number);
-  return hours * 60 + minutes;
-};
-
-const formatTimeForDB = (t: string) => (t.length === 5 ? `${t}:00` : t);
-
-const addMinutesToTime = (
-  time: string,
-  mins: number
-) => {
-  const total = Math.min(
-    toMinutes(time) + mins,
-    MAX_DAY_MINUTES
-  );
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-};
-
-const getCurrentTime = () => {
-  const now = new Date();
-
-  return `${String(
-    now.getHours()
-  ).padStart(2, "0")}:${String(
-    now.getMinutes()
-  ).padStart(2, "0")}`;
-};
-
-const isTodaySelected = (date?: Date) => {
-  if (!date) return false;
-
-  return (
-    format(date, "yyyy-MM-dd") ===
-    format(new Date(), "yyyy-MM-dd")
-  );
-};
-
-const validatePastTime = (selectedTime: string, selectedDate?: Date) => {
-
-  if (!selectedDate) return true;
-
-  if (!isTodaySelected(selectedDate))
-    return true;
-
-  return (
-    toMinutes(selectedTime) >=
-    toMinutes(getCurrentTime())
-  );
-};
-
-const calculatePricingForDuration = ({
-  booking,
-  pricePerHour,
-  proposedDurationMinutes,
-}: {
-  booking: Booking;
-  pricePerHour: number;
-  proposedDurationMinutes: number;
-}) => {
-  const currentDuration = booking.durationMinutes;
-  const extraMinutes = proposedDurationMinutes - currentDuration;
-
-  let parkingExtensionCost =
-    extraMinutes > 0
-      ? (extraMinutes / 15) * Math.ceil(pricePerHour / 4)
-      : 0;
-
-  const pricing = calculatePricing(parkingExtensionCost);
-
-  let platformFee = pricing.serviceFee;
-  let extraCost = pricing.totalPayable;
-
-  return {
-    extraFromCurrent: extraMinutes,
-    extraCost,
-    parkingExtensionCost,
-    platformFee,
-    freeMinutesApplied: 0,
-    newTotalPrice: booking.totalPrice + extraCost,
-    canUseFreeExtension: true,
-    nextFreeExtensionMinutesUsed: 0,
-    nextHasUsedFreeExtension: booking.hasUsedFreeExtension
-  };
-};
-
-const computeStatus = (booking: Booking): ComputedStatus => {
-  if (booking.status === "cancelled") return "cancelled";
-  if (!booking.bookingDate) return "upcoming";
-
-  const now = new Date();
-  const bookingDate = parseISO(booking.bookingDate);
-
-  const [sh, sm] = (booking.startTime || "00:00").split(":").map(Number);
-  const startDt = new Date(bookingDate);
-  startDt.setHours(sh, sm, 0, 0);
-
-  const [eh, em] = (booking.endTime || "23:59").split(":").map(Number);
-  const endDt = new Date(bookingDate);
-  endDt.setHours(eh, em, 0, 0);
-
-  if (!booking.endTime) {
-    endDt.setTime(startDt.getTime() + booking.durationMinutes * 60 * 1000);
-  }
-
-  if (now < startDt) return "upcoming";
-  if (now >= startDt && now <= endDt) return "active";
-  return "completed";
-};
-
-const statusConfig: Record<ComputedStatus, { label: string; color: string }> = {
-  upcoming: { label: "Upcoming", color: "bg-blue-500/10 text-blue-600 border-blue-500/20" },
-  active: { label: "Currently Parked", color: "bg-green-500/10 text-green-600 border-green-500/20" },
-  completed: { label: "Completed", color: "bg-muted text-muted-foreground border-border" },
-  cancelled: { label: "Cancelled", color: "bg-red-500/10 text-red-600 border-red-500/20" },
-};
-
-const StarRating = ({ rating, onChange, readonly = false }: { rating: number; onChange?: (v: number) => void; readonly?: boolean }) => (
-  <div className="flex gap-1">
-    {[1, 2, 3, 4, 5].map((i) => (
-      <Star key={i} className={`w-5 h-5 transition-colors ${i <= rating ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground/30"} ${!readonly ? "cursor-pointer hover:text-yellow-400" : ""}`}
-        onClick={() => !readonly && onChange?.(i)} />
-    ))}
-  </div>
-);
-
-const loadRazorpayScript = (): Promise<boolean> =>
-  new Promise((resolve) => {
-    if ((window as any).Razorpay) return resolve(true);
-    const script = document.createElement("script");
-    script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
-
-const ActionNote = ({ type }: { type: "extend" | "reschedule" }) => {
-  const actionText = type === "extend" ? "extension" : "rescheduling";
-  return (
-    <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg">
-      <p className="text-xs text-yellow-600 leading-relaxed">
-        <span className="font-semibold">Note:</span> While {actionText}, it is not allowed to move back or reduce duration.
-        If you mistakenly booked extra time, please cancel this booking and create a new one.
-        Any eligible refunds will be processed within 48 hours of cancellation.
-      </p>
-    </div>
-  );
-};
-
-const RescheduleConfirmationModal = ({
-  confirmation,
-  setConfirmation,
-  onConfirm,
-  onCancel,
-  loading,
-}:
-  {
-    confirmation: ExtensionConfirmation;
-    setConfirmation: React.Dispatch<React.SetStateAction<ExtensionConfirmation | null>>;
-    onConfirm: () => void;
-    onCancel: () => void;
-    loading: boolean;
-  }) => {
-  const extraCost = confirmation.applyGraceExtension ? 0 : confirmation.extraCost;
-  const graceBase = Math.ceil((FREE_EXTENSION_MINUTES * confirmation.pricePerHour) / 60);
-  const gracePricing = calculatePricing(graceBase);
-  const graceDiscount = gracePricing.totalPayable;
-  const payableAmount = confirmation.applyGraceExtension ? Math.max(0, confirmation.extraCost - graceDiscount) : confirmation.extraCost;
-  const isFreeReschedule =
-    confirmation.type === "reschedule" &&
-    confirmation.extraCost === 0 &&
-    confirmation.extraMinutes === 0;
-
-  const confirmButtonLabel = isFreeReschedule
-    ? "Confirm"
-    : `Confirm & Pay ₹${payableAmount}`;
-
-  const infoMessage = isFreeReschedule
-    ? "This change is already covered in your existing booking. No additional charges apply for this reschedule."
-    : "Proceed to confirm this booking change.";
-
-  return (
-    <Dialog open={true} onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="w-[92vw] max-w-[430px] max-h-[88vh] overflow-y-auto p-4 sm:p-5 rounded-2xl pointer-events-auto">
-        <DialogHeader>
-          <DialogTitle>{confirmation.type === "extend" ? "Extend Booking" : "Reschedule Booking"} - Price Summary</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          {/* Original Booking Info */}
-          <div className="bg-muted p-2.5 rounded-lg space-y-1">
-            <p className="text-sm font-medium text-foreground">Current Booking</p>
-            <p className="text-xs text-muted-foreground">Date: {format(new Date(confirmation.rescheduleDate), "MMM d, yyyy")}</p>
-            <p className="text-xs text-muted-foreground">Time: {confirmation.rescheduleStartTime} - {confirmation.rescheduleEndTime}</p>
-          </div>
-
-          {confirmation.extraMinutes >= 30 && !confirmation.nextHasUsedFreeExtension && confirmation.canUseFreeExtension && (
-            <div className="rounded-xl border p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-sm">
-                    Use Free 10 Min Grace
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    One-time free extension
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  disabled={confirmation.nextHasUsedFreeExtension}
-                  onClick={() =>
-                    setConfirmation(prev =>
-                      prev
-                        ? {
-                          ...prev,
-                          applyGraceExtension: !prev.applyGraceExtension,
-                        }
-                        : prev
-                    )
-                  }
-                  className={cn(
-                    "w-12 h-6 rounded-full relative transition",
-                    confirmation.applyGraceExtension
-                      ? "bg-primary"
-                      : "bg-muted",
-                    confirmation.nextHasUsedFreeExtension &&
-                    "opacity-50"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition",
-                      confirmation.applyGraceExtension &&
-                      "translate-x-6"
-                    )}
-                  />
-                </button>
-
-              </div>
-            </div>
-          )}
-
-          {/* Duration Change */}
-          <div className="border-l-2 border-blue-500 pl-3 space-y-1">
-            <p className="text-sm font-medium text-foreground">Duration Change</p>
-            <p className="text-xs text-muted-foreground">Duration change: <span className="font-semibold">{confirmation.extraMinutes} minutes</span></p>
-            {confirmation.applyGraceExtension ? (
-              <p className="text-xs text-green-600 font-medium">
-                ✓ Free 10 minute grace applied.
-                You saved ₹{graceDiscount} on this extension.
-              </p>
-            ) : (
-              <p
-                className={cn(
-                  "text-xs font-medium",
-                  isFreeReschedule
-                    ? "text-green-600"
-                    : "text-yellow-600"
-                )}
-              >
-                {infoMessage}
-              </p>
-            )}
-          </div>
-
-          {/* Pricing Breakdown */}
-          {confirmation.extraCost > 0 && (
-            <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg space-y-2">
-              <div className="flex gap-2">
-                <AlertCircle className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-yellow-600">Paid Extension</p>
-                  <p className="text-xs text-yellow-600/80">Additional parking time selected. Extension charge applies.</p>
-                </div>
-              </div>
-              <div className="mt-3 pt-3 border-t border-yellow-500/20 space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span>Current booking amount:</span>
-                  <span className="font-semibold">₹{confirmation.newTotalPrice - extraCost}</span>
-                </div>
-                <div className="space-y-2">
-
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span>
-                        Parking extension ({confirmation.extraMinutes} mins)
-                      </span>
-
-                      <span className="font-semibold">
-                        ₹{confirmation.parkingExtensionCost}
-                      </span>
-                    </div>
-
-                    {confirmation.platformFee > 0 && (
-                      <div className="flex justify-between text-xs">
-                        <span>Platform fee</span>
-
-                        <span className="font-semibold">
-                          ₹{confirmation.platformFee}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {confirmation.applyGraceExtension && (
-                    <div className="flex justify-between items-start text-xs text-green-600 bg-green-500/5 rounded-md px-2 py-2">
-                      <span className="pr-3">
-                        Free extension discount (10 mins)
-                      </span>
-
-                      <span className="font-semibold whitespace-nowrap">
-                        - ₹{graceDiscount}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <div className="flex justify-between text-sm font-bold border-t border-yellow-500/20 pt-2 mt-2">
-                  <span>Booking total after extension:</span>
-                  <span className="text-yellow-600">
-                    ₹{
-                      confirmation.applyGraceExtension
-                        ? confirmation.newTotalPrice - graceDiscount
-                        : confirmation.newTotalPrice
-                    }
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Final Price */}
-          <div className="bg-card border border-border p-3 rounded-lg">
-            <div className="flex justify-between items-center">
-              <span className="text-base font-display font-bold">
-                {isFreeReschedule
-                  ? "Additional Charge:"
-                  : "Amount Payable:"
-                }
-              </span>
-              <span className="text-xl font-bold text-primary">
-                ₹{payableAmount}
-              </span>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <Button
-              variant="outline"
-              onClick={onCancel}
-              disabled={loading}
-              className="flex-1"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={onConfirm}
-              disabled={loading}
-              className="flex-1"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Preparing payment...
-                </>
-              ) : (
-                confirmButtonLabel
-              )}
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-};
-
-const formatDuration = (mins: number) => {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-
-  if (h && m) return `${h}h ${m}m`;
-  if (h) return `${h}h`;
-  return `${m}m`;
-};
-
-const ReduceTimeConfirmationModal = ({ data, onConfirm, onCancel, }: {
-  data: any;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) => (
-  <Dialog open={true} onOpenChange={(o) => !o && onCancel()}>
-    <DialogContent className="max-w-md">
-
-      <DialogHeader>
-        <DialogTitle>
-          Reduce Booking Duration?
-        </DialogTitle>
-      </DialogHeader>
-
-      <div className="space-y-4">
-        <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl space-y-3">
-          <div>
-            <p className="text-sm font-semibold text-red-600">
-              ⚠ No Refund Policy
-            </p>
-
-            <p className="text-xs text-red-600/80 mt-1">
-              Reducing unused time does not generate a refund.
-            </p>
-          </div>
-
-          <div className="bg-background/50 rounded-lg p-3 text-sm space-y-2">
-            <div className="flex justify-between">
-              <span>Current duration</span>
-              <strong>
-                {formatDuration(data.booking.durationMinutes)}
-              </strong>
-            </div>
-
-            <div className="flex justify-between">
-              <span>New duration</span>
-              <strong>
-                {formatDuration(data.newDuration)}
-              </strong>
-            </div>
-
-            <div className="flex justify-between text-red-500 font-semibold border-t pt-2">
-              <span>Time being reduced</span>
-              <span>
-                - {formatDuration(data.reducedMinutes)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={onCancel}
-            className="flex-1"
-          >
-            Keep Current Booking
-          </Button>
-
-          <Button
-            onClick={onConfirm}
-            className="flex-1"
-          >
-            Reduce & Continue
-          </Button>
-        </div>
-      </div>
-    </DialogContent>
-  </Dialog>
-);
 
 const MyBookingsPage = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  useRazorpayScript();
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [latestTitleUpdates, setLatestTitleUpdates] = useState<
-    Record<string, any>
-  >({});
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState<string | null>(null);
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
-  const [reviewRating, setReviewRating] = useState(0);
-  const [reviewText, setReviewText] = useState("");
+
+  const [reviewDraft, setReviewDraft] = useState<ReviewDraft>({
+    bookingId: null,
+    rating: 0,
+    text: "",
+  });
+
   const [submittingReview, setSubmittingReview] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<"all" | "completed" | "cancelled">("all");
 
-  // Extend state
-  const [extendingId, setExtendingId] = useState<string | null>(null);
-  const [extendMinutes, setExtendMinutes] = useState(15);
-  const [extendLoading, setExtendLoading] = useState(false);
-
   // Reschedule state
   const [reschedulingId, setReschedulingId] = useState<string | null>(null);
-  const [rescheduleDate, setRescheduleDate] = useState<Date | undefined>(undefined);
-  const [rescheduleMinutes, setRescheduleMinutes] = useState(0);
-  const [rescheduleStartTime, setRescheduleStartTime] = useState("");
   const [rescheduleLoading, setRescheduleLoading] = useState(false);
-  const [shouldCheckReschedule, setShouldCheckReschedule] = useState(false);
   const [rescheduleConfirmation, setRescheduleConfirmation] = useState<RescheduleConfirmation | null>(null);
+  const [rescheduleSlot, setRescheduleSlot] = useState<RescheduleTimeSlot>({
+    date: undefined,
+    startTime: "",
+    minutes: 0,
+  });
+  const { date: rescheduleDate, startTime: rescheduleStartTime, minutes: rescheduleMinutes } = rescheduleSlot;
 
+  const setRescheduleMinutes: React.Dispatch<React.SetStateAction<number>> = (value) => {
+    setRescheduleSlot(slot => ({
+      ...slot,
+      minutes: typeof value === "function" ? (value as (prev: number) => number)(slot.minutes) : value,
+    }));
+  };
+  
   const [reduceConfirmation, setReduceConfirmation] = useState<{
     booking: Booking;
     reducedMinutes: number;
@@ -593,105 +86,52 @@ const MyBookingsPage = () => {
     endTime: string;
   } | null>(null);
 
-  const canIncreaseExtension = (booking: Booking) =>
-    toMinutes(booking.endTime!.slice(0, 5)) + extendMinutes + EXTEND_STEP <= MAX_DAY_MINUTES;
-
-  const canDecreaseExtension = () => {
-    return extendMinutes > EXTEND_STEP;
-  };
-
-  const canIncreaseReschedule = (startTime: string) =>
-    toMinutes(startTime) + rescheduleMinutes + EXTEND_STEP <= MAX_DAY_MINUTES;
-
-  const canDecreaseReschedule = () =>
-    rescheduleMinutes > EXTEND_STEP;
-
   const handleRescheduleDateChange = (value: string) => {
-
     if (!value) return;
 
     const pickedDate = parseISO(value);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getAppToday(rescheduleTimezone);
 
     const selectedDate = new Date(pickedDate);
     selectedDate.setHours(0, 0, 0, 0);
 
     if (selectedDate < today) {
-      toast.error(
-        "Past dates are not allowed"
-      );
+      toast.error("Past dates are not allowed");
 
-      setRescheduleDate(new Date());
-
-      if (
-        !rescheduleStartTime ||
-        !validatePastTime(
-          rescheduleStartTime,
-          new Date()
-        )
-      ) {
-        setRescheduleStartTime(
-          getCurrentTime()
-        );
-      }
+      setRescheduleSlot(slot => ({
+        ...slot,
+        date: getAppToday(rescheduleTimezone),
+        startTime:
+          !slot.startTime || !validatePastTime(slot.startTime, getAppToday(rescheduleTimezone), rescheduleTimezone)
+            ? getCurrentTime(rescheduleTimezone)
+            : slot.startTime,
+      }));
 
       return;
     }
 
-    setRescheduleDate(pickedDate);
-
-    if (
-      isTodaySelected(pickedDate) &&
-      (
-        !rescheduleStartTime ||
-        !validatePastTime(
-          rescheduleStartTime,
-          pickedDate
-        )
-      )
-    ) {
-      setRescheduleStartTime(
-        getCurrentTime()
-      );
-    }
+    setRescheduleSlot(slot => ({
+      ...slot,
+      date: pickedDate,
+      startTime:
+        isTodayInTimezone(pickedDate, rescheduleTimezone) && (!slot.startTime || !validatePastTime(slot.startTime, pickedDate, rescheduleTimezone))
+          ? getCurrentTime(rescheduleTimezone)
+          : slot.startTime,
+    }));
   };
 
   const handleRescheduleTimeChange = (value: string) => {
-
-    if (!validatePastTime(value, rescheduleDate)) {
+    if (!validatePastTime(value, rescheduleDate, rescheduleTimezone)) {
       toast.error("Past time not allowed");
       return;
     }
 
-    setRescheduleStartTime(value);
+    setRescheduleSlot(slot => ({
+      ...slot,
+      startTime: value,
+      minutes: clampDurationToStart(value, slot.minutes),
+    }));
   };
-
-  useEffect(() => {
-    loadRazorpayScript();
-  }, []);
-
-  useEffect(() => {
-    if (!shouldCheckReschedule) return;
-    if (!reschedulingId) {
-      setShouldCheckReschedule(false);
-      return;
-    }
-    if (!rescheduleDate || !rescheduleStartTime) {
-      setShouldCheckReschedule(false);
-      toast.error("Please fill all fields");
-      return;
-    }
-
-    const booking = bookings.find(b => b.id === reschedulingId);
-    if (!booking) {
-      setShouldCheckReschedule(false);
-      return;
-    }
-
-    prepareRescheduleConfirmation(booking);
-    setShouldCheckReschedule(false);
-  }, [shouldCheckReschedule]);
 
   const fetchBookings = useCallback(async () => {
     if (!user) return;
@@ -700,23 +140,21 @@ const MyBookingsPage = () => {
     try {
       const response = await api.get("/Booking/GetMyBookings");
 
-      const data = response.data;
-
-      setBookings(data);
-
-      const spaceIds = data.map((b: Booking) => b.spaceId);
-
-      if (!spaceIds.length) {
-        setLatestTitleUpdates({});
-        return;
-      }
-
+      setBookings(response.data);
     } catch (err) {
       toast.error("Something went wrong");
     } finally {
       setLoading(false);
     }
   }, [user]);
+
+  const refreshBookingState = useCallback(async () => {
+    await fetchBookings();
+
+    setReschedulingId(null);
+    setRescheduleConfirmation(null);
+    setRescheduleSlot({ date: undefined, startTime: "", minutes: 0 });
+  }, [fetchBookings]);
 
   const fetchReviews = useCallback(async () => {
     if (!user) return;
@@ -734,104 +172,47 @@ const MyBookingsPage = () => {
   const handleConfirmReduce = () => {
     if (!reduceConfirmation) return;
 
-    const { rescheduleDate, startTime, endTime } = reduceConfirmation;
+    const { rescheduleDate, startTime } = reduceConfirmation;
 
-    setRescheduleDate(rescheduleDate);
-    setRescheduleStartTime(startTime);
+    setRescheduleSlot(slot => ({
+      ...slot,
+      date: rescheduleDate,
+      startTime
+    }));
     setReduceConfirmation(null);
     prepareRescheduleConfirmation(reduceConfirmation.booking, true);
   };
 
   const handleCancel = async (id: string) => {
     setCancelling(id);
-    const { error } = await supabase.from("bookings").update({ status: "cancelled" }).eq("id", id);
-    setCancelling(null);
-    if (error) toast.error("Failed to cancel booking");
-    else {
+    try {
+      await api.post(`/Booking/Cancel/${id}`);
       toast.success("Booking cancelled");
       setBookings(prev => prev.map(b => b.id === id ? { ...b, status: "cancelled" } : b));
+    } catch {
+      toast.error("Failed to cancel booking");
+    } finally {
+      setCancelling(null);
     }
   };
 
-  const handleExtend = async (booking: Booking) => {
-    const currentEnd = (booking.endTime || "23:59").slice(0, 5);
-    const currentEndMinutes = toMinutes(currentEnd);
-    const extensionMinutes = extendMinutes;
-    const extendEndTime = addMinutesToTime(currentEnd, extensionMinutes);
-    const newEndMinutes = toMinutes(extendEndTime);
-
-    if (newEndMinutes === currentEndMinutes) {
-      toast.error("No changes detected. Please choose a different end time.");
-      return;
-    }
-    if (newEndMinutes < currentEndMinutes) {
-      toast.error("Moving end time backward is not allowed. Please cancel and create a new booking.");
-      return;
-    }
-
-    // Check availability
-    const { data: capacityCheck } = await supabase.rpc("check_parking_capacity", {
-      p_space_id: booking.spaceId,
-      p_slot_id: booking.slotId,
-      p_vehicle_type: booking.vehicleType,
-      p_booking_date: booking.bookingDate!,
-      p_start_time: formatTimeForDB(booking.endTime!),
-      p_end_time: formatTimeForDB(extendEndTime),
-      p_exclude_booking_id: booking.id,
+  const handleOpenReschedule = (booking: Booking) => {
+    const startTime = booking.startTime?.slice(0, 5) || "";
+    setReschedulingId(booking.id);
+    setRescheduleSlot({
+      date: parseISO(booking.bookingDate!),
+      startTime,
+      minutes: clampDurationToStart(startTime, booking.durationMinutes),
     });
+  };
 
-    if (capacityCheck && !(capacityCheck as any).available) {
-      toast.error("Selected time slot is already booked. Please choose another slot or vacate on time.");
-      return;
-    }
-
-    // Get pricing
-    const { data: space } = await supabase
-      .from("parking_spaces")
-      .select("price_per_hour")
-      .eq("id", booking.spaceId)
-      .single();
-
-    if (!space) {
-      toast.error("Failed to fetch pricing");
-      return;
-    }
-
-    const proposedDurationMinutes =
-      booking.durationMinutes +
-      (toMinutes(extendEndTime) - toMinutes(booking.endTime ?? booking.startTime ?? "00:00"));
-    const pricing = calculatePricingForDuration({
-      booking,
-      pricePerHour: space.price_per_hour,
-      proposedDurationMinutes,
-    });
-
-    if (pricing.extraFromCurrent <= 0) {
-      toast.error("You can only extend duration. Reducing time is not allowed.");
-      return;
-    }
-
-    const newTotalPrice = booking.totalPrice + pricing.extraCost;
-
-    setRescheduleConfirmation({
-      bookingId: booking.id,
-      extraMinutes: Math.max(0, pricing.extraFromCurrent),
-      extraCost: pricing.extraCost,
-      newTotalPrice,
-      canUseFreeExtension: pricing.canUseFreeExtension,
-      pricePerHour: space.price_per_hour,
-      rescheduleDate: parseISO(booking.bookingDate!),
-      rescheduleStartTime: booking.startTime!,
-      rescheduleEndTime: extendEndTime,
-      isPaidExtension: pricing.extraCost > 0,
-      freeMinutesApplied: pricing.freeMinutesApplied,
-      nextFreeExtensionMinutesUsed: pricing.nextFreeExtensionMinutesUsed,
-      nextHasUsedFreeExtension: pricing.nextHasUsedFreeExtension,
-      type: "extend",
-      parkingExtensionCost: pricing.parkingExtensionCost,
-      platformFee: pricing.platformFee,
-      applyGraceExtension: false,
-    });
+  const handleCloseReschedule = () => {
+    setReschedulingId(null);
+    setRescheduleSlot(slot => ({
+      ...slot,
+      date: rescheduleBooking ? parseISO(rescheduleBooking.bookingDate!) : undefined,
+      startTime: "",
+    }));
   };
 
   const prepareRescheduleConfirmation = async (booking: Booking, skipReductionWarning = false) => {
@@ -845,28 +226,40 @@ const MyBookingsPage = () => {
       return;
     }
 
+    const computedEndTime = addMinutesToTime(rescheduleStartTime, rescheduleMinutes, MAX_DAY_MINUTES);
+
     // BLOCK past date/time (FINAL GUARD)
     if (rescheduleDate && rescheduleStartTime) {
-      const now = new Date();
-      const [h, m] = rescheduleStartTime.split(":").map(Number);
-      const selected = new Date(rescheduleDate);
-      selected.setHours(h, m, 0, 0);
+      const now = getAppNow(booking.spaceTimezone);
+      now.setSeconds(0, 0);
 
-      if (selected < now) {
-        toast.error("You cannot reschedule to a past time");
-        return;
+      const isActive = booking.computedStatus === "active"; // NEW
+
+      if (isActive) {
+        // Start is fixed & already in the past — expected for an active booking.
+        // Only the new end time needs to still be in the future.
+        const [eh, em] = computedEndTime.split(":").map(Number);
+        const selectedEnd = new Date(rescheduleDate);
+        selectedEnd.setHours(eh, em, 0, 0);
+
+        if (selectedEnd <= now) {
+          toast.error("End time must be after the current time");
+          return;
+        }
+      } else {
+        const [h, m] = rescheduleStartTime.split(":").map(Number);
+        const selected = new Date(rescheduleDate);
+        selected.setHours(h, m, 0, 0);
+
+        if (selected < now) {
+          toast.error("You cannot reschedule to a past time");
+          return;
+        }
       }
     }
 
     const startMinutes = toMinutes(rescheduleStartTime);
-
     const proposedDurationMinutes = rescheduleMinutes;
-
-    const computedEndTime = addMinutesToTime(
-      rescheduleStartTime,
-      rescheduleMinutes
-    );
-
     const endMinutes = toMinutes(computedEndTime);
 
     const isSameAsCurrent =
@@ -898,260 +291,142 @@ const MyBookingsPage = () => {
       return;
     }
 
-    // Check capacity
-    const { data: capacityCheck } = await supabase.rpc("check_parking_capacity", {
-      p_space_id: booking.spaceId,
-      p_slot_id: booking.slotId,
-      p_vehicle_type: booking.vehicleType,
-      p_booking_date: format(rescheduleDate, "yyyy-MM-dd"),
-      p_start_time: formatTimeForDB(rescheduleStartTime),
-      p_end_time: formatTimeForDB(computedEndTime),
-      p_exclude_booking_id: booking.id,
-    });
+    try {
+      const response = await api.post("/Booking/PreviewReschedule", {
+        bookingId: booking.id,
+        bookingDate: format(rescheduleDate, "yyyy-MM-dd"),
+        startTime: formatTimeForDB(rescheduleStartTime),
+        endTime: formatTimeForDB(computedEndTime),
+        applyGraceExtension: rescheduleConfirmation?.applyGraceExtension ?? false
+      });
 
-    if (!capacityCheck || !(capacityCheck as any).available) {
-      toast.error("Selected slot is already booked. Please choose a different slot.");
-      return;
-    }
+      const result = response.data;
 
-    // Get pricing
-    const { data: space } = await supabase
-      .from("parking_spaces")
-      .select("price_per_hour")
-      .eq("id", booking.spaceId)
-      .single();
+      if (!result.success) {
+        toast.error(result.message ?? "Unable to reschedule.");
+        return;
+      }
 
-    if (!space) {
-      toast.error("Failed to fetch pricing");
-      return;
-    }
-
-    let pricing;
-
-    if (proposedDurationMinutes === booking.durationMinutes) {
-      pricing = {
-        extraFromCurrent: 0,
-        extraCost: 0,
-        newTotalPrice: booking.totalPrice,
-        canUseFreeExtension: false,
-        freeMinutesApplied: 0,
-        nextFreeExtensionMinutesUsed: 0,
-        nextHasUsedFreeExtension:
-          booking.hasUsedFreeExtension
-      };
-    }
-    else {
-      pricing = calculatePricingForDuration({
-        booking,
-        pricePerHour: space.price_per_hour,
-        proposedDurationMinutes,
+      setRescheduleConfirmation({
+        bookingId: booking.id,
+        paymentId: result.paymentId,
+        extraMinutes: result.extraMinutes,
+        extraCost: result.totalPayable,
+        newTotalPrice: result.newBookingTotal,
+        canUseFreeExtension: result.canUseFreeExtension,
+        pricePerHour: result.pricePerHour,
+        rescheduleDate,
+        rescheduleStartTime,
+        rescheduleEndTime: computedEndTime,
+        isPaidExtension: result.paymentRequired,
+        freeMinutesApplied: result.freeMinutesApplied,
+        nextFreeExtensionMinutesUsed: result.nextFreeExtensionMinutesUsed,
+        nextHasUsedFreeExtension: result.nextHasUsedFreeExtension,
+        type: "reschedule",
+        parkingExtensionCost: result.parkingExtensionCost,
+        serviceFee: result.serviceFee,
+        gst: result.gst,
+        graceDiscount: result.graceDiscount,
+        graceApplied: result.graceApplied,
+        applyGraceExtension: result.graceApplied,
+        currentBookingPrice: result.currentBookingPrice,
+        baseTotalPayable: result.totalPayable,
+        baseParkingExtensionCost: result.parkingExtensionCost,
       });
     }
+    catch (err: any) {
+      toast.error(
+        err?.response?.data?.message ??
+        "Unable to check availability."
+      );
+    }
+  };
 
-    const newTotalPrice = booking.totalPrice + pricing.extraCost;
-    const isPaidExtension = pricing.extraCost > 0;
+  const handleGraceToggle = (enabled: boolean) => {
+    if (!rescheduleConfirmation) return;
 
-    setRescheduleConfirmation({
-      bookingId: booking.id,
-      extraMinutes: Math.max(0, pricing.extraFromCurrent),
-      extraCost: pricing.extraCost,
-      newTotalPrice,
-      canUseFreeExtension: pricing.canUseFreeExtension,
-      pricePerHour: space.price_per_hour,
-      rescheduleDate,
-      rescheduleStartTime,
-      rescheduleEndTime: computedEndTime,
-      isPaidExtension,
-      freeMinutesApplied: pricing.freeMinutesApplied,
-      nextFreeExtensionMinutesUsed: pricing.nextFreeExtensionMinutesUsed,
-      nextHasUsedFreeExtension: pricing.nextHasUsedFreeExtension,
-      type: "reschedule",
-      parkingExtensionCost: pricing.parkingExtensionCost,
-      platformFee: pricing.platformFee,
-      applyGraceExtension: false,
+    setRescheduleConfirmation(prev => {
+      if (!prev) return prev;
+      return { ...prev, ...calculateGraceToggle(prev, enabled) };
     });
   };
 
-  const handleReschedulePayment = async (confirmation: ExtensionConfirmation, booking: Booking, payableAmount: number) => {
-    const [sh, sm] = confirmation.rescheduleStartTime.split(":").map(Number);
-    const [eh, em] = confirmation.rescheduleEndTime.split(":").map(Number);
-    const newDurationMinutes = eh * 60 + em - sh * 60 - sm;
-
+  const handleReschedulePayment = async (confirmation: RescheduleConfirmation, booking: Booking) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-
-      const { data: paymentRow } = await supabase
-        .from("payments")
-        .insert({
-          booking_id: booking.id,
-          user_id: user?.userId,
-          amount: payableAmount,
-          status: "pending",
-          payment_type: confirmation.type === "extend"
-            ? "extension"
-            : "reschedule",
-          payment_stage: "initiated",
-          currency: "INR",
-          base_price: confirmation.parkingExtensionCost,
-          platform_fee: confirmation.platformFee,
-          total_payable: payableAmount,
-          pricing_version: "v1",
-          gateway_name: "razorpay",
-        })
-        .select()
-        .single();
-
-      if (!paymentRow) {
-        throw new Error(
-          "Failed to create payment record"
-        );
+      const paymentId = confirmation.paymentId;
+      if (!paymentId) {
+        throw new Error("Payment not found.");
       }
 
-      const [loaded, orderResponse] = await Promise.all([
-
-        loadRazorpayScript(),
-
-        supabase.functions.invoke("create-razorpay-order", {
-          body: {
-            amount: payableAmount,
-            currency: "INR",
-            receipt: `${confirmation.type}_${booking.id}_${Date.now().toString(36)}`.substring(0, 40),
-            notes: {
-              booking_id: booking.id,
-              spaceId: booking.spaceId,
-              user_id: user?.userId,
-            },
-            payment_id: paymentRow?.id,
-            booking_id: booking.id
-          },
-        }),
-      ]);
-
+      const orderResponse = await api.post("/Payment/CreatePaymentOrder", { paymentId });
       const orderData = orderResponse.data;
-      const orderError = orderResponse.error;
 
-      if (orderError || !orderData?.order_id) {
-        throw new Error(orderData?.error || "Failed to create payment order");
+      if (!orderData?.orderId) {
+        throw new Error("Failed to create payment order");
       }
-
-      const options = {
-        key: orderData.key_id,
-        amount: payableAmount * 100,
-        currency: "INR",
-        name: "Park Mitra",
-        description: `Parking ${confirmation.type}: ${booking.spaceTitle}`,
-        order_id: orderData.order_id,
-        handler: async (response: any) => {
-          try {
-            // Prepare booking data based on type
-            const bookingData: any = {
-              booking_id: booking.id,
-              spaceId: booking.spaceId,
-              spaceTitle: booking.spaceTitle,
-              spaceAddress: booking.spaceAddress,
-              spaceCity: booking.spaceCity,
-              durationMinutes: newDurationMinutes,
-              totalPrice: booking.totalPrice + payableAmount,
-              vehicle_type: booking.vehicleType,
-              vehicle_id: booking.vehicleId || null,
-              slot_id: booking.slotId || null,
-              has_used_free_extension: confirmation.nextHasUsedFreeExtension,
-              free_extension_minutes_used: confirmation.nextFreeExtensionMinutesUsed,
-            };
-
-            if (confirmation.type === "reschedule") {
-              bookingData.bookingDate = format(confirmation.rescheduleDate, "yyyy-MM-dd");
-              bookingData.startTime = confirmation.rescheduleStartTime;
-              bookingData.endTime = confirmation.rescheduleEndTime;
-            } else {
-              // extend
-              bookingData.bookingDate = booking.bookingDate;
-              bookingData.startTime = booking.startTime;
-              bookingData.endTime = confirmation.rescheduleEndTime;
-            }
-
-            const { data: verifyData, error: verifyError } = await supabase.functions.invoke("verify-razorpay-payment", {
-              body: {
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-                booking_data: bookingData,
-                payment_id: paymentRow.id,
-              },
-            });
-
-            if (verifyError || !verifyData?.success) {
-              toast.error("Payment verification failed. Contact support.");
-            } else {
-              toast.success(`Booking ${confirmation.type === "extend" ? "extended" : "rescheduled"} successfully!`);
-              setReschedulingId(null);
-              setRescheduleConfirmation(null);
-              setRescheduleDate(undefined);
-              setRescheduleStartTime("");
-              setExtendingId(null);
-              setExtendMinutes(15);
-              fetchBookings();
-            }
-          } catch {
-            toast.error("Something went wrong verifying payment.");
-          }
-          setRescheduleLoading(false);
-        },
-        prefill: { email: user?.email },
-        theme: { color: "#2a9d7c" },
-        modal: {
-          ondismiss: async () => {
-
-            await supabase
-              .from("payments")
-              .update({
-                status: "abandoned",
-                payment_stage: "checkout_closed",
-                failure_reason: "user_closed_checkout"
-              })
-              .eq("id", paymentRow.id)
-              .eq("status", "pending");
-
-            setRescheduleLoading(false);
-          }
-        }
-      };
 
       setRescheduleConfirmation(null);
       setReschedulingId(null);
-      setExtendingId(null);
 
       document.body.style.pointerEvents = "auto";
 
+      // Delay lets the dialog finish closing before Razorpay opens —
+      // avoids a pointer-events/z-index race with the Radix overlay.
       setTimeout(() => {
         requestAnimationFrame(() => {
+          openRazorpayCheckout({
+            order: {
+              orderId: orderData.orderId,
+              keyId: orderData.keyId,
+              amountInPaise: orderData.amountInPaise,
+            },
+            description: `Parking ${confirmation.type}: ${booking.spaceTitle}`,
+            email: user?.email,
+            onSuccess: async (response) => {
+              try {
+                const verifyResponse = await api.post("/Payment/VerifyPayment", {
+                  bookingId: booking.id,
+                  razorpayOrderId: response.razorpay_order_id,
+                  razorpayPaymentId: response.razorpay_payment_id,
+                  razorpaySignature: response.razorpay_signature,
+                });
 
-          const razorpay = new (window as any).Razorpay(options);
+                if (!verifyResponse.data.success) {
+                  toast.error(verifyResponse.data.message ?? "Payment verification failed.");
+                } else {
+                  const confirmResponse = await api.post("/Booking/ConfirmReschedule", {
+                    bookingId: booking.id,
+                    bookingDate: format(confirmation.rescheduleDate, "yyyy-MM-dd"),
+                    startTime: formatTimeForDB(confirmation.rescheduleStartTime),
+                    endTime: formatTimeForDB(confirmation.rescheduleEndTime),
+                    applyGraceExtension: confirmation.applyGraceExtension,
+                  });
 
-          razorpay.on("payment.failed",
-            async (response: any) => {
-              await supabase
-                .from("payments")
-                .update({
-                  status: "failed",
-                  payment_stage: "payment_failed",
-                  failure_reason:
-                    response?.error?.description ||
-                    "Payment failed"
-                })
-                .eq("id", paymentRow.id)
-                .eq("status", "pending");
+                  if (!confirmResponse.data.success) {
+                    toast.error(confirmResponse.data.message);
+                    return;
+                  }
 
-              toast.error(
-                response?.error?.description ||
-                "Payment failed"
-              );
-
+                  toast.success(
+                    `Booking ${confirmation.type === "extend" ? "extended" : "rescheduled"} successfully!`
+                  );
+                  await refreshBookingState();
+                }
+              } catch {
+                toast.error("Something went wrong verifying payment.");
+              }
               setRescheduleLoading(false);
-            }
-          );
-
-          razorpay.open();
+            },
+            onFailure: async () => {
+              await api.post("/Payment/MarkPaymentFailed", { bookingId: booking.id });
+              toast.error("Payment failed");
+              setRescheduleLoading(false);
+            },
+            onDismiss: async () => {
+              await api.post("/Payment/MarkPaymentAbandoned", { bookingId: booking.id });
+              setRescheduleLoading(false);
+            },
+          });
         });
       }, 150);
     } catch (err: any) {
@@ -1170,88 +445,55 @@ const MyBookingsPage = () => {
       return;
     }
 
-    if (rescheduleConfirmation.applyGraceExtension && rescheduleConfirmation.extraMinutes >= 30) {
-      rescheduleConfirmation.nextHasUsedFreeExtension = true;
-      rescheduleConfirmation.nextFreeExtensionMinutesUsed = 10;
-    }
+    try {
+      const response = await api.post("/Booking/ConfirmReschedule", {
+        bookingId: booking.id,
+        bookingDate: format(
+          rescheduleConfirmation.rescheduleDate,
+          "yyyy-MM-dd"
+        ),
+        startTime: formatTimeForDB(
+          rescheduleConfirmation.rescheduleStartTime
+        ),
+        endTime: formatTimeForDB(
+          rescheduleConfirmation.rescheduleEndTime
+        ),
+        applyGraceExtension:
+          rescheduleConfirmation.applyGraceExtension
+      });
 
-    const graceBase = Math.ceil(
-      (FREE_EXTENSION_MINUTES *
-        rescheduleConfirmation.pricePerHour) / 60
-    );
+      const result = response.data;
 
-    const gracePricing = calculatePricing(graceBase);
-    const graceDiscount = gracePricing.totalPayable;
+      // No payment required
+      if (!result.paymentRequired) {
+        toast.success("Booking rescheduled successfully!");
 
-    const payableAmount = rescheduleConfirmation.applyGraceExtension && rescheduleConfirmation.extraMinutes >= 30
-      ? Math.max(
-        0,
-        rescheduleConfirmation.extraCost -
-        graceDiscount
-      )
-      : rescheduleConfirmation.extraCost;
+        await refreshBookingState();
+        return;
+      }
 
-    if (
-      rescheduleConfirmation.isPaidExtension &&
-      payableAmount > 0
-    ) {
+      // Payment required
       await handleReschedulePayment(
-        rescheduleConfirmation,
-        booking,
-        payableAmount
+        {
+          ...rescheduleConfirmation,
+          paymentId: result.paymentId
+        },
+        booking
       );
-
-      return;
     }
-
-    const [sh, sm] = rescheduleConfirmation.rescheduleStartTime.split(":").map(Number);
-    const [eh, em] = rescheduleConfirmation.rescheduleEndTime.split(":").map(Number);
-    const newDurationMinutes = eh * 60 + em - sh * 60 - sm;
-
-    // Prepare update data based on type
-    const updateData: any = {
-      durationMinutes: newDurationMinutes,
-      totalPrice: rescheduleConfirmation.newTotalPrice,
-      has_used_free_extension: rescheduleConfirmation.nextHasUsedFreeExtension,
-      free_extension_minutes_used: rescheduleConfirmation.nextFreeExtensionMinutesUsed,
-    };
-
-    if (rescheduleConfirmation.type === "reschedule") {
-      updateData.bookingDate = format(rescheduleConfirmation.rescheduleDate, "yyyy-MM-dd");
-      updateData.startTime = rescheduleConfirmation.rescheduleStartTime;
-      updateData.endTime = rescheduleConfirmation.rescheduleEndTime;
-    } else {
-      // extend only updates endTime
-      updateData.endTime = rescheduleConfirmation.rescheduleEndTime;
+    catch (err: any) {
+      toast.error(
+        err?.response?.data?.message ??
+        "Failed to reschedule booking."
+      );
     }
-
-    const { data, error } = await supabase
-      .from("bookings")
-      .update(updateData)
-      .eq("id", rescheduleConfirmation.bookingId)
-      .select();
-
-    setRescheduleLoading(false);
-
-    if (error || !data || data.length === 0) {
-      toast.error(`Failed to ${rescheduleConfirmation.type} booking`);
-      console.error(error);
-    } else {
-      toast.success(`Booking ${rescheduleConfirmation.type === "extend" ? "extended" : "rescheduled"} successfully!`);
-
-      setReschedulingId(null);
-      setRescheduleConfirmation(null);
-      setRescheduleDate(undefined);
-      setRescheduleStartTime("");
-      setExtendingId(null);
-      setExtendMinutes(15);
-
-      fetchBookings();
+    finally {
+      setRescheduleLoading(false);
     }
   };
 
   const handleSubmitReview = async (booking: Booking, existingReviewId?: string) => {
-    if (!user || reviewRating === 0) {
+    if (!user || reviewDraft.rating === 0) {
       toast.error("Please select a rating");
       return;
     }
@@ -1261,8 +503,8 @@ const MyBookingsPage = () => {
       user_id: user.userId,
       booking_id: booking.id,
       spaceId: booking.spaceId,
-      rating: reviewRating,
-      review_text: reviewText || null,
+      rating: reviewDraft.rating,
+      review_text: reviewDraft.text || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -1289,9 +531,11 @@ const MyBookingsPage = () => {
       }
     } else {
       toast.success(existingReviewId ? "Review updated! ⭐" : "Review submitted! ⭐");
-      setReviewingId(null);
-      setReviewRating(0);
-      setReviewText("");
+      setReviewDraft({
+        bookingId: null,
+        rating: 0,
+        text: ""
+      });
       fetchReviews();
     }
   };
@@ -1315,6 +559,13 @@ const MyBookingsPage = () => {
       })),
     [bookings, reviewsByBooking]
   );
+
+  const rescheduleBooking = useMemo(
+    () => enrichedBookings.find(b => b.id === reschedulingId),
+    [enrichedBookings, reschedulingId]
+  );
+
+  const rescheduleTimezone = rescheduleBooking?.spaceTimezone; // undefined until dialog opens
 
   const activeBookings = useMemo(
     () =>
@@ -1346,231 +597,28 @@ const MyBookingsPage = () => {
     [historyBookings, historyFilter]
   );
 
-  const getDisplayLocation = (booking: Booking & { computedStatus: string }) => {
-    if (
-      booking.computedStatus === "completed" ||
-      booking.computedStatus === "cancelled"
-    ) {
-      return `Previously parked in ${booking.spaceCity}`;
-    }
-    return `${booking.spaceAddress}, ${booking.spaceCity}`;
-  };
-
-  const openDirections = (
-    lat: number,
-    lng: number
-  ) => {
-    window.open(
-      `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${lat},${lng}`,
-      "_blank"
-    );
-  };
-
   const renderBookingCard = (booking: (typeof enrichedBookings)[0], showActions: boolean) => {
-    const cfg = statusConfig[booking.computedStatus];
-    const cancelledBooking = booking.status === "cancelled";
 
     return (
       <div key={booking.id} className={`bg-card rounded-2xl p-6 card-shadow flex flex-col gap-4 ${booking.computedStatus === "active" ? "ring-2 ring-green-500/30" : ""}`}>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-2 flex-1">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h3 className="font-display font-bold text-foreground text-lg">
-                {
-                  getLatestDisplayValue({
-                    currentValue:
-                      latestTitleUpdates[
-                        booking.spaceId
-                      ]?.new_value ||
-                      booking.spaceTitle,
-
-                    previousValue:
-                      latestTitleUpdates[
-                        booking.spaceId
-                      ]?.old_value
-                  })
-                }
-              </h3>
-              <Badge variant="outline" className={cfg.color}>{cfg.label}</Badge>
-              {booking.vehicleType && <Badge variant="secondary" className="capitalize text-xs">{booking.vehicleType}</Badge>}
-              {canExtendBooking(booking) && !cancelledBooking && (booking.hasUsedFreeExtension ? (
-                <Badge className="bg-yellow-500/20 text-yellow-700 text-xs">
-                  Grace Used
-                </Badge>
-              ) : (
-                <Badge className="bg-green-500/20 text-green-700 text-xs">
-                  Grace Available
-                </Badge>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1"><MapPin className="w-4 h-4" /> {getDisplayLocation(booking)}</span>
-              {booking.bookingDate && <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> {format(parseISO(booking.bookingDate), "MMM d, yyyy")}</span>}
-              <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {displayTime(booking.startTime)} – {displayTime(booking.endTime)}</span>
-              <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> {Math.floor(booking.durationMinutes / 60)}h {booking.durationMinutes % 60}m</span>
-            </div>
-            {booking.computedStatus === "completed" && (
-              <div className="text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
-                🔒 Exact parking access details hidden after booking completion.
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-lg font-bold text-foreground">₹{booking.totalPrice}</span>
-            {(booking.computedStatus === "active" || booking.computedStatus === "upcoming") && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1"
-                onClick={() => openDirections(booking.spaceLat!, booking.spaceLng!)}
-              >
-                <Navigation className="w-3.5 h-3.5" />
-                Navigate
-              </Button>
-            )}
-            {showActions && booking.computedStatus === "upcoming" && booking.durationMinutes < 1440 && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1"
-                  onClick={() => {
-                    setReschedulingId(booking.id);
-                    setRescheduleDate(parseISO(booking.bookingDate!));
-                    setRescheduleStartTime(booking.startTime?.slice(0, 5) || "");
-                    setRescheduleMinutes(booking.durationMinutes);
-                  }}
-                >
-                  <RefreshCw className="w-3.5 h-3.5" /> Reschedule
-                </Button>
-                <Button variant="destructive" size="sm" disabled={cancelling === booking.id} onClick={() => handleCancel(booking.id)}>
-                  {cancelling === booking.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                  <span className="ml-1">Cancel</span>
-                </Button>
-              </>
-            )}
-            {showActions && booking.computedStatus === "active" && canExtendBooking(booking) && (
-              <Button variant="outline" size="sm" className="gap-1"
-                onClick={() => { setExtendingId(booking.id); setExtendMinutes(15); setExtendLoading(false); }}>
-                <TimerReset className="w-3.5 h-3.5" /> Extend
-              </Button>
-            )}
-          </div>
-        </div>
+        <BookingCard
+          booking={booking}
+          showActions={showActions}
+          cancelling={cancelling}
+          handleCancel={handleCancel}
+          onReschedule={handleOpenReschedule}
+        />
 
         {/* Completed Booking Actions */}
         {booking.computedStatus === "completed" && (
-          <div className="border-t border-border pt-4 flex flex-wrap gap-3 items-center">
-
-            <Button
-              variant="secondary"
-              size="sm"
-              className="rounded-full"
-              onClick={() => navigate(`/space/db_${booking.spaceId}`)}
-            >
-              Book Again
-            </Button>
-
-            {reviewingId === booking.id ? (
-              <div className="w-full mt-4 p-5 bg-muted/40 rounded-2xl border border-primary/10 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-semibold text-sm">How was your parking experience?</h4>
-                  <StarRating
-                    rating={reviewRating}
-                    onChange={setReviewRating}
-                  />
-                </div>
-
-                <Textarea
-                  placeholder="Share your experience (optional)"
-                  value={reviewText}
-                  onChange={(e) => setReviewText(e.target.value)}
-                  className="bg-background/50 border-primary/10 focus-visible:ring-primary/20"
-                  rows={3}
-                />
-
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    className="rounded-full px-5"
-                    disabled={submittingReview || reviewRating === 0}
-                    onClick={() => {
-                      const existing = reviewsByBooking.get(booking.id);
-                      handleSubmitReview(booking, existing?.id);
-                    }}
-                  >
-                    {submittingReview ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    ) : (
-                      <Star className="w-4 h-4 mr-2 fill-current" />
-                    )}
-                    {reviewsByBooking.has(booking.id) ? "Update Review" : "Submit Review"}
-                  </Button>
-
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-full px-5"
-                    onClick={() => {
-                      setReviewingId(null);
-                      setReviewRating(0);
-                      setReviewText("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <>
-                {!booking.hasReview ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-full gap-2 border-primary/20 hover:bg-primary/5 transition-colors"
-                    onClick={() => {
-                      setReviewingId(booking.id);
-                      setReviewRating(0);
-                      setReviewText("");
-                    }}
-                  >
-                    <Star className="w-4 h-4" />
-                    Leave Review
-                  </Button>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-full gap-2 text-primary hover:bg-primary/5"
-                    onClick={() => {
-                      const review = reviewsByBooking.get(booking.id);
-                      if (review) {
-                        setReviewingId(booking.id);
-                        setReviewRating(review.rating);
-                        setReviewText(review.review_text || "");
-                      }
-                    }}
-                  >
-                    <Star className="w-4 h-4 fill-primary" />
-                    Edit Review
-                  </Button>
-                )}
-              </>
-            )}
-
-            {/* Display submitted review snippet */}
-            {booking.hasReview && reviewingId !== booking.id && (
-              <div className="w-full mt-2 p-3 bg-muted/20 rounded-xl flex gap-3 items-start border border-border/50">
-                <div className="flex gap-0.5 mt-0.5">
-                  <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
-                  <span className="text-xs font-bold">{reviewsByBooking.get(booking.id)?.rating}</span>
-                </div>
-                <p className="text-xs text-muted-foreground line-clamp-1 italic">
-                  "{reviewsByBooking.get(booking.id)?.review_text || "No comments provided."}"
-                </p>
-              </div>
-            )}
-          </div>
+          <CompletedBookingActions
+            booking={booking}
+            reviewsByBooking={reviewsByBooking}
+            reviewDraft={reviewDraft}
+            submittingReview={submittingReview}
+            setReviewDraft={setReviewDraft}
+            onSubmitReview={handleSubmitReview}
+          />
         )}
       </div>
     );
@@ -1581,9 +629,6 @@ const MyBookingsPage = () => {
       <div className="pt-24 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
     );
   }
-
-  const extendBooking = bookings.find(b => b.id === extendingId);
-  const rescheduleBooking = bookings.find(b => b.id === reschedulingId);
 
   return (
     <div className="min-h-screen bg-background">
@@ -1630,235 +675,23 @@ const MyBookingsPage = () => {
         </div>
       </div>
 
-      {/* Extend Dialog */}
-      <Dialog open={!!extendingId} onOpenChange={(open) => { if (!open) { setExtendingId(null); setExtendMinutes(15); } }}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Extend Parking Time</DialogTitle></DialogHeader>
-          <ActionNote type="extend" />
-          {extendBooking && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">Current end time: <strong>{extendBooking.endTime?.slice(0, 5)}</strong></p>
-              <div>
-                <label className="text-sm font-medium block mb-1">New End Time</label>
-                <div className="flex items-center justify-between border rounded-xl p-3">
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (canDecreaseExtension()) {
-                        setExtendMinutes(v => v - EXTEND_STEP);
-                      }
-                    }}
-                    disabled={!canDecreaseExtension()}
-                    className={cn(
-                      "w-10 h-10 rounded-full border",
-                      !canDecreaseExtension() &&
-                      "opacity-40 cursor-not-allowed"
-                    )}
-                  >
-                    -
-                  </button>
-
-                  <div className="text-center">
-                    <p className="font-semibold">
-                      +{extendMinutes} mins
-                    </p>
-
-                    <p className="text-xs text-muted-foreground">
-                      New End Time:
-                      {" "}
-                      {addMinutesToTime(
-                        extendBooking.endTime?.slice(0, 5) || "00:00",
-                        extendMinutes
-                      )}
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => canIncreaseExtension(extendBooking) &&
-                      setExtendMinutes(v => v + EXTEND_STEP)
-                    }
-                    disabled={!canIncreaseExtension(extendBooking)}
-                    className={cn(
-                      "w-10 h-10 rounded-full border",
-                      !canIncreaseExtension(extendBooking) &&
-                      "opacity-40 cursor-not-allowed"
-                    )}
-                  >
-                    +
-                  </button>
-                </div>
-
-                <p className="text-xs text-muted-foreground">
-                  • Extension allowed only in 15 minute increments
-                  • Original booking duration cannot be reduced
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  • Extensions are charged based on selected extra duration
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  • 10 minute grace discount available on 30+ minute extensions
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button disabled={extendLoading || !extendBooking} onClick={() => handleExtend(extendBooking)}>
-                  {extendLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Checking...</> : "Check Price & Availability"}
-                </Button>
-                <Button variant="ghost" onClick={() => { setExtendingId(null); setExtendMinutes(15); }}>Cancel</Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
       {/* Reschedule Dialog */}
-      <Dialog
+      <RescheduleBookingDialog
         open={!!reschedulingId && !rescheduleConfirmation}
-        onOpenChange={(open) => {
-          if (!open) {
-            setReschedulingId(null);
-            setRescheduleDate(
-              rescheduleBooking
-                ? parseISO(rescheduleBooking.bookingDate!)
-                : undefined
-            );
-            setRescheduleStartTime("");
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reschedule Booking</DialogTitle>
-          </DialogHeader>
-
-          <ActionNote type="reschedule" />
-
-          <div className="space-y-4">
-
-            <div>
-              <label className="text-sm font-medium block mb-1">
-                Booking Date
-              </label>
-
-              <Input
-                type="date"
-                value={
-                  rescheduleDate
-                    ? format(rescheduleDate, "yyyy-MM-dd")
-                    : ""
-                }
-                min={format(new Date(), "yyyy-MM-dd")}
-                onChange={(e) => handleRescheduleDateChange(e.target.value)}
-              />
-
-              <p className="text-xs text-muted-foreground mt-1">
-                Select same or future date
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium block mb-1">
-                  Start Time
-                </label>
-
-                <Input
-                  type="time"
-                  value={rescheduleStartTime}
-                  min={
-                    isTodaySelected(rescheduleDate)
-                      ? getCurrentTime()
-                      : undefined
-                  }
-                  onChange={(e) => handleRescheduleTimeChange(e.target.value)}
-                />
-              </div>
-
-
-              <div>
-                <label className="text-sm font-medium block mb-1">
-                  End Time
-                </label>
-
-                <Input
-                  readOnly
-                  value={
-                    addMinutesToTime(
-                      rescheduleStartTime,
-                      rescheduleMinutes
-                    )
-                  }
-                  className="bg-muted cursor-not-allowed"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium block mb-1">
-                Duration
-              </label>
-
-              <div className="flex items-center justify-between border rounded-xl p-3">
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (canDecreaseReschedule()) {
-                      setRescheduleMinutes(v => v - EXTEND_STEP)
-                    }
-                  }}
-                  disabled={!canDecreaseReschedule()}
-                  className={cn(
-                    "w-10 h-10 rounded-full border",
-                    !canDecreaseReschedule() &&
-                    "opacity-40 cursor-not-allowed"
-                  )}
-                >
-                  -
-                </button>
-
-                <div className="text-center">
-                  <p> {rescheduleMinutes} mins </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (canIncreaseReschedule(rescheduleStartTime)) {
-                      setRescheduleMinutes(v => v + EXTEND_STEP)
-                    }
-                  }}
-                >
-                  +
-                </button>
-
-              </div>
-            </div>
-
-
-            <div className="flex gap-2">
-              <Button onClick={() => setShouldCheckReschedule(true)}>
-                Check Price & Availability
-              </Button>
-
-              <Button
-                variant="ghost"
-                onClick={() => { setReschedulingId(null) }}
-              >
-                Cancel
-              </Button>
-            </div>
-
-          </div>
-        </DialogContent>
-      </Dialog>
+        rescheduleBooking={rescheduleBooking}
+        rescheduleSlot={rescheduleSlot}
+        handleRescheduleDateChange={handleRescheduleDateChange}
+        handleRescheduleTimeChange={handleRescheduleTimeChange}
+        setRescheduleMinutes={setRescheduleMinutes}
+        onClose={handleCloseReschedule}
+        prepareRescheduleConfirmation={prepareRescheduleConfirmation}
+      />
 
       {/* Reschedule Confirmation Modal */}
       {rescheduleConfirmation && (
         <RescheduleConfirmationModal
           confirmation={rescheduleConfirmation}
-          setConfirmation={setRescheduleConfirmation}
+          onGraceToggle={handleGraceToggle}
           onConfirm={handleConfirmReschedule}
           onCancel={() => {
             setRescheduleConfirmation(null);

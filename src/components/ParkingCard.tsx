@@ -4,11 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import type { ParkingSpace } from "@/hooks/useParkingSpaces";
 import { calculateDistanceMeters } from "@/lib/distance";
-
-const vehicleIcons: Record<string, React.ReactNode> = {
-  bike: <Bike className="w-3 h-3" />,
-  car: <Car className="w-3 h-3" />,
-};
+import { vehicleIcons } from "@/constants/vehicleIcons";
 
 const ParkingCard = ({ space, userLocation }: { space: ParkingSpace, userLocation: any }) => {
   const rawDistance = userLocation

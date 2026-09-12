@@ -19,6 +19,7 @@ export interface ParkingSpace {
   lng: number;
   available: boolean;
   _dbId?: string;
+  timezone: string;
 }
 
 interface ApiParkingSpace {
@@ -36,6 +37,7 @@ interface ApiParkingSpace {
   lat: number | null;
   lng: number | null;
   available: boolean;
+  timezone: string;
 }
 
 const mapApiToSpace = (s: ApiParkingSpace): ParkingSpace => ({
@@ -56,6 +58,7 @@ const mapApiToSpace = (s: ApiParkingSpace): ParkingSpace => ({
   lng: s.lng ?? 0,
   available: s.available,
   _dbId: s.id,
+  timezone: s.timezone,
 });
 
 export const useParkingSpaces = () => {
