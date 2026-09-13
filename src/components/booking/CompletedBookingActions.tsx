@@ -4,12 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Star } from "lucide-react";
 import StarRating from "./StarRating";
-import type { Booking, Review } from "@/types/booking";
+import type { Booking } from "@/types/booking";
 import type { ReviewDraft } from "@/viewTypes/bookingUi";
 
 type CompletedBookingActionsProps = {
   booking: Booking;
-  reviewsByBooking: Map<string, Review>;
   reviewDraft: ReviewDraft;
   submittingReview: boolean;
   setReviewDraft: React.Dispatch<React.SetStateAction<ReviewDraft>>;
@@ -18,7 +17,6 @@ type CompletedBookingActionsProps = {
 
 const CompletedBookingActions = ({
   booking,
-  reviewsByBooking,
   reviewDraft,
   submittingReview,
   setReviewDraft,
@@ -64,10 +62,7 @@ const CompletedBookingActions = ({
               size="sm"
               className="rounded-full px-5"
               disabled={submittingReview || reviewDraft.rating === 0}
-              onClick={() => {
-                const existing = reviewsByBooking.get(booking.id);
-                onSubmitReview(booking, existing?.id);
-              }}
+              onClick={() => onSubmitReview(booking)}
             >
               {submittingReview ? (
                 <>
@@ -77,9 +72,7 @@ const CompletedBookingActions = ({
               ) : (
                 <>
                   <Star className="w-4 h-4 mr-2 fill-current" />
-                  {reviewsByBooking.has(booking.id)
-                    ? "Update Review"
-                    : "Submit Review"}
+                  {booking.hasReview ? "Update Review" : "Submit Review"}
                 </>
               )}
             </Button>
@@ -119,16 +112,13 @@ const CompletedBookingActions = ({
               variant="ghost"
               size="sm"
               className="rounded-full gap-2 text-primary hover:bg-primary/5"
-              onClick={() => {
-                const review = reviewsByBooking.get(booking.id);
-                if (review) {
-                  setReviewDraft({
-                    bookingId: booking.id,
-                    rating: review.rating,
-                    text: review.review_text || "",
-                  });
-                }
-              }}
+              onClick={() =>
+                setReviewDraft({
+                  bookingId: booking.id,
+                  rating: booking.rating ?? 0,
+                  text: booking.reviewText || "",
+                })
+              }
             >
               <Star className="w-4 h-4 fill-primary" />
               Edit Review
@@ -142,11 +132,11 @@ const CompletedBookingActions = ({
           <div className="flex gap-0.5 mt-0.5">
             <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
             <span className="text-xs font-bold">
-              {reviewsByBooking.get(booking.id)?.rating}
+              {booking.rating}
             </span>
           </div>
           <p className="text-xs text-muted-foreground line-clamp-1 italic">
-            "{reviewsByBooking.get(booking.id)?.review_text || "No comments provided."}"
+            "{booking.reviewText || "No comments provided."}"
           </p>
         </div>
       )}

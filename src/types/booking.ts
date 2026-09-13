@@ -23,13 +23,15 @@ export interface Booking {
   hasUsedFreeExtension: boolean;
   freeExtensionMinutesUsed: number;
   hasReview: boolean;
+  rating: number | null;
+  reviewText: string | null;
 }
 
 export interface Review {
   id: string;
-  booking_id: string;
+  bookingId: string;
   rating: number;
-  review_text: string | null;
+  reviewText: string | null;
 }
 
 export interface RescheduleConfirmation {

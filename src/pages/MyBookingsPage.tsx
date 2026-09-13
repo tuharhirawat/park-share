@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Loader2, Filter } from "lucide-react";
 import { toast } from "sonner";
@@ -18,11 +17,7 @@ import { openRazorpayCheckout } from "@/lib/razorpayCheckout";
 import { RescheduleTimeSlot, ReviewDraft } from "@/viewTypes/bookingUi";
 import { MAX_DAY_MINUTES } from "@/constants/bookingConstants";
 import { clampDurationToStart, calculateGraceToggle } from "@/lib/bookingHelpers";
-import {
-  Booking,
-  Review,
-  RescheduleConfirmation,
-} from "@/types/booking";
+import { Booking, RescheduleConfirmation } from "@/types/booking";
 import {
   toMinutes,
   validatePastTime,
@@ -46,7 +41,6 @@ const MyBookingsPage = () => {
   const navigate = useNavigate();
   useRazorpayScript();
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState<string | null>(null);
 
@@ -76,7 +70,7 @@ const MyBookingsPage = () => {
       minutes: typeof value === "function" ? (value as (prev: number) => number)(slot.minutes) : value,
     }));
   };
-  
+
   const [reduceConfirmation, setReduceConfirmation] = useState<{
     booking: Booking;
     reducedMinutes: number;
@@ -156,18 +150,9 @@ const MyBookingsPage = () => {
     setRescheduleSlot({ date: undefined, startTime: "", minutes: 0 });
   }, [fetchBookings]);
 
-  const fetchReviews = useCallback(async () => {
-    if (!user) return;
-    const { data } = await supabase
-      .from("reviews")
-      .select("id, booking_id, rating, review_text")
-      .eq("user_id", user.userId)
-    if (data) setReviews(data as Review[]);
-  }, [user]);
-
   useEffect(() => {
-    if (user) { fetchBookings(); fetchReviews(); }
-  }, [user, fetchBookings, fetchReviews]);
+    if (user) { fetchBookings(); }
+  }, [user, fetchBookings]);
 
   const handleConfirmReduce = () => {
     if (!reduceConfirmation) return;
@@ -233,7 +218,7 @@ const MyBookingsPage = () => {
       const now = getAppNow(booking.spaceTimezone);
       now.setSeconds(0, 0);
 
-      const isActive = booking.computedStatus === "active"; // NEW
+      const isActive = booking.computedStatus === "active";
 
       if (isActive) {
         // Start is fixed & already in the past — expected for an active booking.
@@ -458,13 +443,11 @@ const MyBookingsPage = () => {
         endTime: formatTimeForDB(
           rescheduleConfirmation.rescheduleEndTime
         ),
-        applyGraceExtension:
-          rescheduleConfirmation.applyGraceExtension
+        applyGraceExtension: rescheduleConfirmation.applyGraceExtension
       });
 
       const result = response.data;
 
-      // No payment required
       if (!result.paymentRequired) {
         toast.success("Booking rescheduled successfully!");
 
@@ -472,7 +455,6 @@ const MyBookingsPage = () => {
         return;
       }
 
-      // Payment required
       await handleReschedulePayment(
         {
           ...rescheduleConfirmation,
@@ -499,65 +481,42 @@ const MyBookingsPage = () => {
     }
     setSubmittingReview(true);
 
-    const reviewData = {
-      user_id: user.userId,
-      booking_id: booking.id,
-      spaceId: booking.spaceId,
-      rating: reviewDraft.rating,
-      review_text: reviewDraft.text || null,
-      updated_at: new Date().toISOString(),
-    };
+    try {
+      await api.post("/Review/Submit", {
+        bookingId: booking.id,
+        rating: reviewDraft.rating,
+        reviewText: reviewDraft.text || null,
+      });
 
-    let error;
-    if (existingReviewId) {
-      const { error: updateError } = await supabase
-        .from("reviews")
-        .update(reviewData)
-        .eq("id", existingReviewId);
-      error = updateError;
-    } else {
-      const { error: insertError } = await supabase
-        .from("reviews")
-        .insert(reviewData);
-      error = insertError;
-    }
+      toast.success(existingReviewId ? "Review updated! ⭐" : "Review submitted! ⭐");
 
-    setSubmittingReview(false);
-    if (error) {
-      if (error.message.includes("duplicate") || error.code === "23505") {
+      setBookings(prev =>
+        prev.map(b =>
+          b.id === booking.id
+            ? { ...b, hasReview: true, rating: reviewDraft.rating, reviewText: reviewDraft.text || null }
+            : b
+        )
+      );
+      setReviewDraft({ bookingId: null, rating: 0, text: "" });
+    } catch (err: any) {
+      const message = err?.response?.data?.message;
+      if (err?.response?.data?.errorCode === "ALREADY_REVIEWED") {
         toast.error("You've already reviewed this booking");
       } else {
-        toast.error("Failed to submit review");
+        toast.error(message ?? "Failed to submit review");
       }
-    } else {
-      toast.success(existingReviewId ? "Review updated! ⭐" : "Review submitted! ⭐");
-      setReviewDraft({
-        bookingId: null,
-        rating: 0,
-        text: ""
-      });
-      fetchReviews();
+    } finally {
+      setSubmittingReview(false);
     }
   };
-
-  const reviewsByBooking = useMemo(() => {
-    const map = new Map<string, Review>();
-
-    reviews.forEach(review => {
-      map.set(review.booking_id, review);
-    });
-
-    return map;
-  }, [reviews]);
 
   const enrichedBookings = useMemo(
     () =>
       bookings.map(b => ({
         ...b,
         computedStatus: b.computedStatus.toLowerCase(),
-        hasReview: reviewsByBooking.has(b.id)
       })),
-    [bookings, reviewsByBooking]
+    [bookings]
   );
 
   const rescheduleBooking = useMemo(
@@ -565,14 +524,12 @@ const MyBookingsPage = () => {
     [enrichedBookings, reschedulingId]
   );
 
-  const rescheduleTimezone = rescheduleBooking?.spaceTimezone; // undefined until dialog opens
+  const rescheduleTimezone = rescheduleBooking?.spaceTimezone;
 
   const activeBookings = useMemo(
     () =>
       enrichedBookings.filter(
-        b =>
-          b.computedStatus === "upcoming" ||
-          b.computedStatus === "active"
+        b => b.computedStatus === "upcoming" || b.computedStatus === "active"
       ),
     [enrichedBookings]
   );
@@ -580,9 +537,7 @@ const MyBookingsPage = () => {
   const historyBookings = useMemo(
     () =>
       enrichedBookings.filter(
-        b =>
-          b.computedStatus === "completed" ||
-          b.computedStatus === "cancelled"
+        b => b.computedStatus === "completed" || b.computedStatus === "cancelled"
       ),
     [enrichedBookings]
   );
@@ -591,8 +546,7 @@ const MyBookingsPage = () => {
     () => historyFilter === "all"
       ? historyBookings
       : historyBookings.filter(
-        b =>
-          b.computedStatus === historyFilter
+        b => b.computedStatus === historyFilter
       ),
     [historyBookings, historyFilter]
   );
@@ -609,11 +563,9 @@ const MyBookingsPage = () => {
           onReschedule={handleOpenReschedule}
         />
 
-        {/* Completed Booking Actions */}
         {booking.computedStatus === "completed" && (
           <CompletedBookingActions
             booking={booking}
-            reviewsByBooking={reviewsByBooking}
             reviewDraft={reviewDraft}
             submittingReview={submittingReview}
             setReviewDraft={setReviewDraft}
@@ -693,9 +645,7 @@ const MyBookingsPage = () => {
           confirmation={rescheduleConfirmation}
           onGraceToggle={handleGraceToggle}
           onConfirm={handleConfirmReschedule}
-          onCancel={() => {
-            setRescheduleConfirmation(null);
-          }}
+          onCancel={() => setRescheduleConfirmation(null)}
           loading={rescheduleLoading}
         />
       )}
@@ -708,7 +658,6 @@ const MyBookingsPage = () => {
           onCancel={() => setReduceConfirmation(null)}
         />
       )}
-
     </div>
   );
 };

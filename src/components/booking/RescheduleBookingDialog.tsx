@@ -7,8 +7,6 @@ import type { Booking } from "@/types/booking";
 import { MAX_DAY_MINUTES } from "@/constants/bookingConstants";
 import { STEP_DURATION } from "@/constants/spaceDetailsConstants";
 import { toMinutes, addMinutesToTime, isTodayInTimezone, getCurrentTime, getAppToday } from "@/lib/time";
-import { isOnStep } from "@/lib/bookingHelpers";
-import ErrorNotice from "@/components/ui/ErrorNotice";
 import {
   Dialog,
   DialogContent,
@@ -42,7 +40,6 @@ const RescheduleBookingDialog = ({
   const { date: rescheduleDate, startTime: rescheduleStartTime, minutes: rescheduleMinutes } = rescheduleSlot;
   const spaceTimezone = rescheduleBooking?.spaceTimezone;
   const lockStartAndDate = rescheduleBooking?.computedStatus?.toLowerCase() === "active";
-  const isStartTimeOffGrid = !lockStartAndDate && rescheduleStartTime !== "" && !isOnStep(rescheduleStartTime);
 
   const canIncreaseReschedule = (startTime: string) =>
     toMinutes(startTime) + rescheduleMinutes + STEP_DURATION <= MAX_DAY_MINUTES;
@@ -112,9 +109,6 @@ const RescheduleBookingDialog = ({
                   handleRescheduleTimeChange(e.target.value);
                 }}
               />
-              {isStartTimeOffGrid && (
-                <ErrorNotice message="Start time must be in 15-minute intervals (e.g. 10:00, 10:15, 10:30)." />
-              )}
             </div>
 
             <div>
@@ -141,7 +135,6 @@ const RescheduleBookingDialog = ({
 
           <div className="flex gap-2">
             <Button
-              disabled={isStartTimeOffGrid}
               onClick={() => {
                 if (!rescheduleBooking) return;
                 prepareRescheduleConfirmation(rescheduleBooking);

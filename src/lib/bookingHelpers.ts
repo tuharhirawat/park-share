@@ -69,6 +69,3 @@ export const clampDurationToStart = (startTime: string, minutes: number): number
   const clamped = Math.floor(maxAllowed / STEP_DURATION) * STEP_DURATION;
   return Math.max(STEP_DURATION, clamped);
 };
-
-export const isOnStep = (time: string, stepMinutes: number = STEP_DURATION): boolean =>
-  toMinutes(time) % stepMinutes === 0;
