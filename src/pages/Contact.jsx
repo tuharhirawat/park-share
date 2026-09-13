@@ -1,9 +1,26 @@
 import { useState } from "react";
-import { Mail, Clock, Send, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { Mail, Clock, Phone } from "lucide-react";
+import dictionary from "@/constants/dictionary";
 
 const Contact = () => {
+  const { page, support, messages } = dictionary.contact;
 
+  /*
+   * TODO: Re-enable the contact form once the public contact API
+   * has proper abuse protection implemented.
+   *
+   * Required protection before re-enabling:
+   * - Backend rate limiting for /api/Contact/Submit
+   * - Server-side maximum input lengths
+   * - Honeypot / bot protection
+   * - Consider CAPTCHA/Cloudflare Turnstile if spam becomes an issue
+   *
+   * The existing form implementation has intentionally been kept
+   * commented out below so it can be restored later.
+   */
+
+  // TODO: Restore form state when the contact form is re-enabled.
+  /*
   const [formData, setFormData] = useState({
     full_name: "",
     email: "",
@@ -19,7 +36,6 @@ const Contact = () => {
   });
 
   const handleChange = (e) => {
-
     const { name, value } = e.target;
 
     setFormData({
@@ -39,7 +55,6 @@ const Contact = () => {
   };
 
   const validateForm = () => {
-
     const newErrors = {};
 
     if (!formData.full_name.trim()) {
@@ -85,117 +100,80 @@ const Contact = () => {
       message: "",
     });
 
-    const { error } = await supabase
-      .from("contact_messages")
-      .insert([
-        {
-          full_name: formData.full_name.trim(),
-          email: formData.email.trim(),
-          subject: formData.subject.trim(),
-          message: formData.message.trim(),
-        },
-      ]);
+    try {
+      await api.post("/Contact/Submit", {
+        fullName: formData.full_name.trim(),
+        email: formData.email.trim(),
+        subject: formData.subject.trim(),
+        message: formData.message.trim(),
+      });
 
-    setLoading(false);
+      setSubmitStatus({
+        type: "success",
+        message: messages.success,
+      });
 
-    if (error) {
+      setFormData({
+        full_name: "",
+        email: "",
+        subject: "",
+        message: "",
+      });
 
-      console.error(error);
+      setErrors({});
+    } catch (err) {
+      console.error(err);
+
+      const resp = err?.response?.data;
+
+      if (resp?.fieldErrors) {
+        setErrors({
+          full_name: resp.fieldErrors.fullName,
+          email: resp.fieldErrors.email,
+          subject: resp.fieldErrors.subject,
+          message: resp.fieldErrors.message,
+        });
+      }
 
       setSubmitStatus({
         type: "error",
-        message: "Failed to send message. Please try again.",
+        message: resp?.message || messages.error,
       });
-
-      return;
+    } finally {
+      setLoading(false);
     }
-
-    setSubmitStatus({
-      type: "success",
-      message: "Your message has been sent successfully.",
-    });
-
-    setFormData({
-      full_name: "",
-      email: "",
-      subject: "",
-      message: "",
-    });
-
-    setErrors({});
   };
+  */
 
   return (
-    <main className="bg-background" >
-      <section className="px-2 pt-3">
-        <div className="mx-auto px-5">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-start">
-            <div className="space-y-10">
-
-              <div className="mb-4">
-                <div className="inline-flex items-center rounded-full border border-primary/20 bg-primary/10 px-4 py-1.5 text-sm font-medium text-primary mb-2">
-                  Get In Touch
+    <main className="min-h-[calc(100vh-72px)] bg-background">
+      <section className="px-4 py-10 sm:px-6 sm:py-14 lg:px-8 lg:py-16">
+        <div className="mx-auto w-full max-w-6xl">
+          <div className="grid grid-cols-1 items-center gap-8 md:grid-cols-2 md:gap-10 lg:gap-16">
+            <div className="min-w-0">
+              <div className="max-w-xl">
+                <div className="mb-5 inline-flex items-center rounded-full border border-primary/20 bg-primary/10 px-4 py-1.5 text-sm font-medium text-primary">
+                  {page.badge}
                 </div>
 
-                <h2 className="text-3xl md:text-[2.5rem] font-bold text-foreground leading-tight mt-4 mb-4">
-                  We'd love to hear from you
-                </h2>
+                <h1 className="max-w-lg text-3xl font-bold leading-tight tracking-tight text-foreground sm:text-4xl lg:text-5xl">
+                  {page.title}
+                </h1>
 
-                <p className="text-base sm:text-lg text-muted-foreground leading-8 mb-3">
-                  Whether you have questions about bookings, hosting, payments, platform support,
-                  or suggestions to improve ParkMitra, our team would love to hear from you 
-                  and is always here to help.
+                <p className="mt-5 max-w-xl text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
+                  {page.description}
                 </p>
 
-                <p className="text-base sm:text-lg text-muted-foreground leading-8 mb-3">
-                  Please note that we do not directly operate parking
-                  facilities listed on the platform and may be unable to
-                  provide additional information about individual parking
-                  locations.
-                </p>
-              </div>
-
-              <div className="space-y-8 pt-2">
-
-                <div className="flex items-start gap-4 mb-3">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
-                    <Mail className="h-5 w-5 text-primary" />
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-semibold text-foreground mb-1">
-                      Email Support
-                    </h3>
-
-                    <p className="text-muted-foreground">
-                      support@parkmitra.com
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-4">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
-                    <Clock className="h-5 w-5 text-primary" />
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-semibold text-foreground mb-1">
-                      Business Hours
-                    </h3>
-
-                    <p className="text-muted-foreground">
-                      Monday - Saturday
-                    </p>
-
-                    <p className="text-muted-foreground">
-                      9:00 AM - 6:00 PM
-                    </p>
-                  </div>
+                <div className="mt-6 rounded-2xl border border-border bg-card/40 px-5 py-4">
+                  <p className="text-sm leading-6 text-muted-foreground sm:text-base">
+                    {page.notice}
+                  </p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-3xl border border-border bg-card/40 backdrop-blur-md p-6 sm:p-8 md:p-9 shadow-sm">
+            {/* Contact Form is temporarily disabled */}
+            {/* <div className="rounded-3xl border border-border bg-card/40 backdrop-blur-md p-6 sm:p-8 md:p-9 shadow-sm">
               <form
                 onSubmit={handleSubmit}
                 className="space-y-6"
@@ -315,10 +293,108 @@ const Contact = () => {
                   </div>
                 )}
               </form>
+            </div> */}
+
+            <div className="min-w-0">
+              <div className="w-full rounded-3xl border border-border bg-card/50 p-5 shadow-sm backdrop-blur-sm sm:p-7 lg:p-8">
+                <div className="mb-6">
+                  <h2 className="text-xl font-semibold text-foreground sm:text-2xl">
+                    {support.headline}
+                  </h2>
+
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground sm:text-base">
+                    {support.description}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <a
+                    href={`mailto:${support.email}`}
+                    className="group flex min-w-0 items-center gap-4 rounded-2xl border border-border bg-background p-4 transition-colors hover:border-primary/30 hover:bg-primary/5"
+                  >
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
+                      <Mail className="h-5 w-5 text-primary" />
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-sm text-muted-foreground">
+                        {support.emailHeadline}
+                      </p>
+
+                      <p className="mt-0.5 truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary sm:text-base">
+                        {support.email}
+                      </p>
+                    </div>
+                  </a>
+
+                  {support.mobileNumber && (
+                    <a
+                      href={`tel:${support.mobileNumber}`}
+                      className="group flex min-w-0 items-center gap-4 rounded-2xl border border-border bg-background p-4 transition-colors hover:border-primary/30 hover:bg-primary/5"
+                    >
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
+                        <Phone className="h-5 w-5 text-primary" />
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="text-sm text-muted-foreground">
+                          {support.mobileHeadline}
+                        </p>
+
+                        <p className="mt-0.5 text-sm font-semibold text-foreground transition-colors group-hover:text-primary sm:text-base">
+                          {support.mobileNumber}
+                        </p>
+                      </div>
+                    </a>
+                  )}
+
+                  <div className="flex min-w-0 items-center gap-4 rounded-2xl border border-border bg-background p-4">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
+                      <Clock className="h-5 w-5 text-primary" />
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-sm text-muted-foreground">
+                        Business Hours
+                      </p>
+
+                      <p className="mt-0.5 text-sm font-semibold text-foreground sm:text-base">
+                        {support.businessHours?.days || "Monday - Saturday"}
+                      </p>
+
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        {support.businessHours?.hours || "9:00 AM - 6:00 PM"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 border-t border-border pt-5">
+                  <p className="text-center text-xs leading-5 text-muted-foreground sm:text-sm">
+                    {support.aim}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </section>
+
+      {/*
+      TODO: Contact form temporarily disabled.
+
+      The contact form should remain disabled until the public contact API
+      has proper abuse protection implemented.
+
+      Required protection before re-enabling:
+      - Backend rate limiting for /api/Contact/Submit
+      - Server-side maximum input lengths
+      - Honeypot / bot protection
+      - Consider CAPTCHA/Cloudflare Turnstile if required
+
+      The previous form implementation is preserved above and can be
+      restored once the API is properly protected.
+    */}
     </main>
   );
 };
