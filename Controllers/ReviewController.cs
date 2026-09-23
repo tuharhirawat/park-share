@@ -41,5 +41,59 @@ namespace ParkMitra_BE.Controllers
             if (!result.Success) return BadRequest(result);
             return Ok(result);
         }
+
+        [HttpGet("host/space/{spaceId}/summary")]
+        public async Task<IActionResult> GetHostSpaceReviewSummary(Guid spaceId)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken))
+                return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (currentUser == null)
+                return Unauthorized();
+
+            var summary = await _reviewService.GetHostSpaceReviewSummaryBySpaceIdAsync(
+                currentUser.UserId,
+                spaceId);
+
+            if (summary == null)
+                return NotFound();
+
+            return Ok(summary);
+        }
+
+        [HttpGet("host/space/{spaceId}/reviewers")]
+        public async Task<IActionResult> GetSpaceReviewers(Guid spaceId)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken)) return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (currentUser == null) return Unauthorized();
+
+            var reviewers = await _reviewService.GetSpaceReviewersAsync(currentUser.UserId, spaceId);
+            if (reviewers == null) return NotFound();
+
+            return Ok(reviewers);
+        }
+
+        [HttpGet("user/spacebooking/reviews")]
+        public async Task<IActionResult> GetMySpaceReviews([FromQuery] Guid[] spaceIds)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken))
+                return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (currentUser == null)
+                return Unauthorized();
+
+            var reviews = await _reviewService.GetMySpaceReviewsAsync(
+                currentUser.UserId,
+                spaceIds);
+
+            return Ok(reviews);
+        }
     }
 }

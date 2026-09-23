@@ -51,6 +51,14 @@ public class SupabaseStorageClient : IStorageClient
             content);
     }
 
+    public Task<HttpResponseMessage> DeleteFileAsync(string bucket, string path)
+    {
+        ConfigureHeaders(string.Empty);
+
+        return _httpClient.DeleteAsync(
+            BuildStorageUrl($"/storage/v1/object/{bucket}/{path}"));
+    }
+
     public string GetPublicUrl(string bucket, string path)
     {
         return BuildStorageUrl($"/storage/v1/object/public/{bucket}/{path}");

@@ -2,7 +2,11 @@
 using Microsoft.EntityFrameworkCore;
 using ParkMitra_BE.Data;
 using ParkMitra_BE.DTOs;
+using ParkMitra_BE.DTOs.Host;
 using ParkMitra_BE.DTOs.ParkingSpace;
+using ParkMitra_BE.Enums;
+using ParkMitra_BE.Helpers;
+using ParkMitra_BE.Mappers;
 using ParkMitra_BE.Models;
 
 namespace ParkMitra_BE.Services
@@ -113,8 +117,14 @@ namespace ParkMitra_BE.Services
                 RejectionReason = s.rejection_reason,
                 ReapplyCount = s.reapply_count,
                 CreatedAt = s.created_at,
-                CarSlots = slotCounts.FirstOrDefault(x => x.space_id == s.id && x.vehicle_type == "car")?.Count ?? 0,
-                BikeSlots = slotCounts.FirstOrDefault(x => x.space_id == s.id && x.vehicle_type == "bike")?.Count ?? 0
+                CarSlots = slotCounts.FirstOrDefault(x => x.space_id == s.id && x.vehicle_type == VehicleType.Car)?.Count ?? 0,
+                BikeSlots = slotCounts.FirstOrDefault(x => x.space_id == s.id && x.vehicle_type == VehicleType.Bike)?.Count ?? 0,
+                TitleCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_title_change_at),
+                CityCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_city_change_at),
+                AddressCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_address_change_at),
+                FeaturesCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_feature_change_at),
+                PricePerHourCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_price_per_hour_change_at),
+                PricePerDayCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_price_per_day_change_at),
             }).ToList();
         }
 
@@ -310,6 +320,137 @@ namespace ParkMitra_BE.Services
                 .ToListAsync();
         }
 
+        public async Task<UpdateSpaceDetailsResultDto> UpdateSpaceDetailsAsync(Guid userId, Guid spaceId, UpdateSpaceDetailsRequestDto dto)
+        {
+            var space = await _context.parking_spaces
+                .FirstOrDefaultAsync(s => s.id == spaceId && s.user_id == userId);
+
+            if (space == null)
+                return new UpdateSpaceDetailsResultDto { Success = false, Message = "Listing not found." };
+
+            var now = DateTime.UtcNow;
+            var errors = new Dictionary<string, string>();
+
+            var titleChanged = dto.Title.Trim() != space.title;
+            var cityChanged = dto.City.Trim() != space.city;
+            var addressChanged = dto.Address.Trim() != space.address;
+            var featuresChanged = !FeaturesEqual(dto.Features, space.features);
+            var pricePerHourChanged = dto.PricePerHour != space.price_per_hour;
+            var pricePerDayChanged = dto.PricePerDay != space.price_per_day;
+
+            if (titleChanged && ParkingSpaceCooldownHelper.IsCooldownActive(space.last_title_change_at))
+            {
+                errors["title"] = $"Can be changed after {ParkingSpaceCooldownHelper.GetRemainingDays(space.last_title_change_at)} days";
+            }
+
+            if (cityChanged && ParkingSpaceCooldownHelper.IsCooldownActive(space.last_city_change_at))
+            {
+                errors["city"] = $"Can be changed after {ParkingSpaceCooldownHelper.GetRemainingDays(space.last_city_change_at)} days";
+            }
+
+            if (addressChanged && ParkingSpaceCooldownHelper.IsCooldownActive(space.last_address_change_at))
+            {
+                errors["address"] = $"Can be changed after {ParkingSpaceCooldownHelper.GetRemainingDays(space.last_address_change_at)} days";
+            }
+
+            if (featuresChanged && ParkingSpaceCooldownHelper.IsCooldownActive(space.last_feature_change_at))
+            {
+                errors["features"] = $"Can be changed after {ParkingSpaceCooldownHelper.GetRemainingDays(space.last_feature_change_at)} days";
+            }
+
+            if (pricePerHourChanged && ParkingSpaceCooldownHelper.IsCooldownActive(space.last_price_per_hour_change_at))
+            {
+                errors["pricePerHour"] = $"Can be changed after {ParkingSpaceCooldownHelper.GetRemainingDays(space.last_price_per_hour_change_at)} days";
+            }
+
+            if (pricePerDayChanged && ParkingSpaceCooldownHelper.IsCooldownActive(space.last_price_per_day_change_at))
+            {
+                errors["pricePerDay"] = $"Can be changed after {ParkingSpaceCooldownHelper.GetRemainingDays(space.last_price_per_day_change_at)} days";
+            }
+
+            if (errors.Count > 0)
+            {
+                return new UpdateSpaceDetailsResultDto
+                {
+                    Success = false,
+                    Message = "Some fields can't be changed yet.",
+                    FieldErrors = errors
+                };
+            }
+
+            var requests = new List<parking_space_update_request>();
+
+            if (titleChanged)
+            {
+                requests.Add(NewUpdateRequest(spaceId, "title", space.title, dto.Title.Trim()));
+                space.title = dto.Title.Trim();
+                space.last_title_change_at = now;
+            }
+
+            if (cityChanged)
+            {
+                requests.Add(NewUpdateRequest(spaceId, "city", space.city, dto.City.Trim()));
+                space.city = dto.City.Trim();
+                space.last_city_change_at = now;
+            }
+
+            if (addressChanged)
+            {
+                requests.Add(NewUpdateRequest(spaceId, "address", space.address, dto.Address.Trim()));
+                space.address = dto.Address.Trim();
+                space.lat = dto.Lat;
+                space.lng = dto.Lng;
+                space.last_address_change_at = now;
+            }
+
+            if (featuresChanged)
+            {
+                space.features = dto.Features;
+                space.last_feature_change_at = now;
+            }
+
+            if (pricePerHourChanged)
+            {
+                space.price_per_hour = dto.PricePerHour;
+                space.last_price_per_hour_change_at = now;
+            }
+
+            if (pricePerDayChanged)
+            {
+                space.price_per_day = dto.PricePerDay;
+                space.last_price_per_day_change_at = now;
+            }
+
+            space.description = dto.Description;
+            space.updated_at = now;
+
+            if (requests.Count > 0)
+                _context.parking_space_update_requests.AddRange(requests);
+
+            await _context.SaveChangesAsync();
+
+            return new UpdateSpaceDetailsResultDto
+            {
+                Success = true,
+                Message = "Updated successfully",
+                Space = HostMapper.MapSpace(space, new HostSpaceStatsDto())
+            };
+        }
+
+        public async Task<List<HostSlotDto>> GetSpaceSlotsBySpaceIdAsync(Guid userId, Guid spaceId)
+        {
+            var ownsSpace = await _context.parking_spaces
+                .AnyAsync(s => s.id == spaceId && s.user_id == userId);
+            if (!ownsSpace) return new List<HostSlotDto>();
+
+            var slots = await _context.parking_slots
+                .Where(s => s.space_id == spaceId)
+                .OrderBy(s => s.label)
+                .ToListAsync();
+
+            return slots.Select(HostMapper.MapSlot).ToList();
+        }
+
         // Helper methods
 
         private static string ResolveTimezone(double lat, double lng)
@@ -320,7 +461,7 @@ namespace ParkMitra_BE.Services
             }
             catch
             {
-                return "Asia/Kolkata"; // safe fallback if lookup fails for edge-case coordinates
+                return "Asia/Kolkata";
             }
         }
 
@@ -343,7 +484,7 @@ namespace ParkMitra_BE.Services
                     id = Guid.NewGuid(),
                     space_id = spaceId,
                     label = $"C-{i}",
-                    vehicle_type = "car",
+                    vehicle_type = VehicleType.Car,
                     is_active = true,
                     created_at = DateTime.UtcNow,
                     updated_at = DateTime.UtcNow
@@ -357,7 +498,7 @@ namespace ParkMitra_BE.Services
                     id = Guid.NewGuid(),
                     space_id = spaceId,
                     label = $"B-{i}",
-                    vehicle_type = "bike",
+                    vehicle_type = VehicleType.Bike,
                     is_active = true,
                     created_at = DateTime.UtcNow,
                     updated_at = DateTime.UtcNow
@@ -366,5 +507,24 @@ namespace ParkMitra_BE.Services
 
             return slots;
         }
+
+        private static bool FeaturesEqual(List<string>? a, List<string>? b)
+        {
+            a ??= new List<string>();
+            b ??= new List<string>();
+            return a.OrderBy(x => x).SequenceEqual(b.OrderBy(x => x));
+        }
+
+        private static parking_space_update_request NewUpdateRequest(
+            Guid spaceId, string field, string? oldValue, string? newValue) => new()
+            {
+                id = Guid.NewGuid(),
+                space_id = spaceId,
+                field = field,
+                old_value = oldValue,
+                new_value = newValue,
+                status = "PENDING",
+                created_at = DateTime.UtcNow
+            };
     }
 }

@@ -101,5 +101,33 @@ namespace ParkMitra_BE.Controllers
             var slots = await _parkingSpaceService.GetAvailableSlotsAsync(id);
             return Ok(slots);
         }
+
+        [HttpPut("host/{spaceId}/details/update")]
+        public async Task<IActionResult> UpdateSpaceDetails(Guid spaceId, [FromBody] UpdateSpaceDetailsRequestDto dto)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken)) return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (currentUser == null) return Unauthorized();
+
+            var result = await _parkingSpaceService.UpdateSpaceDetailsAsync(currentUser.UserId, spaceId, dto);
+            if (!result.Success) return BadRequest(result);
+            
+            return Ok(result);
+        }
+
+        [HttpGet("host/{spaceId}/slots")]
+        public async Task<IActionResult> GetSpaceSlotsBySpaceId(Guid spaceId)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken)) return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (currentUser == null) return Unauthorized();
+
+            var slots = await _parkingSpaceService.GetSpaceSlotsBySpaceIdAsync(currentUser.UserId, spaceId);
+            return Ok(slots);
+        }
     }
 }

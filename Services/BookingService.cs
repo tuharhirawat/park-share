@@ -2,8 +2,11 @@
 using ParkMitra_BE.Data;
 using ParkMitra_BE.DTOs;
 using ParkMitra_BE.DTOs.Booking;
+using ParkMitra_BE.DTOs.Host;
 using ParkMitra_BE.DTOs.Payment;
 using ParkMitra_BE.Enums;
+using ParkMitra_BE.Helpers;
+using ParkMitra_BE.Mappers;
 using ParkMitra_BE.Models;
 
 namespace ParkMitra_BE.Services
@@ -174,8 +177,16 @@ namespace ParkMitra_BE.Services
             };
         }
 
-        public async Task<List<MyBookingsDto>> GetMyBookingsAsync(Guid userId)
+        public async Task<PagedResultDto<MySpaceBookingsDto>> GetMyBookingsAsync(
+            Guid userId,
+            string tab,
+            string historyFilter,
+            int page,
+            int pageSize)
         {
+            page = Math.Max(1, page);
+            pageSize = Math.Clamp(pageSize, 1, 50);
+
             var bookings = await _context.bookings
                 .Where(b => b.user_id == userId)
                 .Where(b => b.status == BookingStatus.Confirmed || b.status == BookingStatus.Cancelled)
@@ -183,42 +194,60 @@ namespace ParkMitra_BE.Services
                 .OrderByDescending(b => b.created_at)
                 .ToListAsync();
 
-            if (bookings.Count == 0)
-                return new List<MyBookingsDto>();
+            var matchingBookings = bookings
+                .Where(b =>
+                {
+                    var computedStatus = BookingStatusCalculator.Compute(b, b.space?.timezone);
 
-            var bookingIds = bookings.Select(b => b.id).ToList();
-            var spaceIds = bookings.Select(b => b.space_id).Distinct().ToList();
+                    if (tab.Equals("active", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return computedStatus == ComputedBookingStatus.Active || computedStatus == ComputedBookingStatus.Upcoming;
+                    }
 
-            var slotIds = bookings
-                .Where(b => b.slot_id.HasValue)
-                .Select(b => b.slot_id!.Value)
-                .Distinct()
+                    if (historyFilter.Equals("completed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return computedStatus == ComputedBookingStatus.Completed;
+                    }
+
+                    if (historyFilter.Equals("cancelled", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return computedStatus == ComputedBookingStatus.Cancelled;
+                    }
+
+                    // History → All
+                    return computedStatus == ComputedBookingStatus.Completed || computedStatus == ComputedBookingStatus.Cancelled;
+                })
                 .ToList();
 
-            var vehicleIds = bookings
-                .Where(b => b.vehicle_id.HasValue)
-                .Select(b => b.vehicle_id!.Value)
-                .Distinct()
+            var totalCount = matchingBookings.Count;
+
+            var pageBookings = matchingBookings
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .ToList();
 
-            var slots = await _context.parking_slots
-                .Where(s => slotIds.Contains(s.id))
-                .ToDictionaryAsync(s => s.id);
+            if (pageBookings.Count == 0)
+            {
+                return new PagedResultDto<MySpaceBookingsDto>
+                {
+                    Items = new List<MySpaceBookingsDto>(),
+                    TotalCount = totalCount,
+                    Page = page,
+                    PageSize = pageSize
+                };
+            }
 
-            var vehicles = await _context.vehicles
-                .Where(v => vehicleIds.Contains(v.id))
-                .ToDictionaryAsync(v => v.id);
-
-            // One dictionary for reviews — replaces the old reviewedBookingIds/reviewedSet pair
-            var myReviews = await _context.reviews
-                .Where(r => bookingIds.Contains(r.booking_id))
-                .ToDictionaryAsync(r => r.booking_id);
+            var spaceIds = pageBookings
+                .Select(b => b.space_id)
+                .Distinct()
+                .ToList();
 
             // Latest APPROVED/PENDING title update per space
             var titleUpdates = await _context.parking_space_update_requests
-                .Where(u => u.field == "title"
-                    && spaceIds.Contains(u.space_id)
-                    && (u.status == "APPROVED" || u.status == "PENDING"))
+                .Where(u =>
+                    u.field == "title" &&
+                    spaceIds.Contains(u.space_id) &&
+                    (u.status == "APPROVED" || u.status == "PENDING"))
                 .OrderByDescending(u => u.created_at)
                 .ToListAsync();
 
@@ -226,7 +255,7 @@ namespace ParkMitra_BE.Services
                 .GroupBy(u => u.space_id)
                 .ToDictionary(g => g.Key, g => g.First());
 
-            return bookings.Select(b =>
+            var items = pageBookings.Select(b =>
             {
                 var displayTitle = b.space_title;
 
@@ -240,9 +269,7 @@ namespace ParkMitra_BE.Services
                             : update.new_value ?? update.old_value ?? b.space_title;
                 }
 
-                myReviews.TryGetValue(b.id, out var review);
-
-                return new MyBookingsDto
+                return new MySpaceBookingsDto
                 {
                     Id = b.id,
                     SpaceId = b.space_id,
@@ -255,34 +282,69 @@ namespace ParkMitra_BE.Services
                     DurationMinutes = b.duration_minutes,
                     TotalPrice = b.total_price,
                     Status = b.status,
-                    ComputedStatus = ComputeStatus(b),
+                    ComputedStatus = BookingStatusCalculator.Compute(b, b.space?.timezone),
                     BookingDate = b.booking_date,
                     StartTime = b.start_time,
                     EndTime = b.end_time,
                     CreatedAt = b.created_at,
-                    VehicleType = b.vehicle_type,
                     VehicleId = b.vehicle_id,
-                    VehicleNumber = b.vehicle_id.HasValue &&
-                                    vehicles.TryGetValue(b.vehicle_id.Value, out var vehicle)
-                                        ? vehicle.registration_number
-                                        : null,
                     SlotId = b.slot_id,
-                    SlotLabel = b.slot_id.HasValue &&
-                                slots.TryGetValue(b.slot_id.Value, out var slot)
-                                    ? slot.label
-                                    : null,
                     HasUsedFreeExtension = b.has_used_free_extension,
-                    FreeExtensionMinutesUsed = b.free_extension_minutes_used,
-                    HasReview = review != null,
-                    Rating = review?.rating,
-                    ReviewText = review?.review_text,
+                    FreeExtensionMinutesUsed = b.free_extension_minutes_used
                 };
             }).ToList();
+
+            return new PagedResultDto<MySpaceBookingsDto>
+            {
+                Items = items,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
         }
 
-        public async Task<RescheduleBookingResultDto> PreviewRescheduleAsync(
-            Guid userId,
-            RescheduleBookingRequestDto dto)
+        public async Task<MySpaceBookingsCountDto> GetMySpaceBookingsCountAsync(Guid userId)
+        {
+            var bookings = await _context.bookings
+                .Where(b => b.user_id == userId)
+                .ToListAsync();
+
+            var active = 0;
+            var completed = 0;
+            var cancelled = 0;
+
+            foreach (var booking in bookings)
+            {
+                var computedStatus = BookingStatusCalculator.Compute(
+                    booking,
+                    booking.space?.timezone);
+
+                switch (computedStatus)
+                {
+                    case ComputedBookingStatus.Active:
+                    case ComputedBookingStatus.Upcoming:
+                        active++;
+                        break;
+
+                    case ComputedBookingStatus.Completed:
+                        completed++;
+                        break;
+
+                    case ComputedBookingStatus.Cancelled:
+                        cancelled++;
+                        break;
+                }
+            }
+
+            return new MySpaceBookingsCountDto
+            {
+                Active = active,
+                Completed = completed,
+                Cancelled = cancelled
+            };
+        }
+
+        public async Task<RescheduleBookingResultDto> PreviewRescheduleAsync(Guid userId, RescheduleBookingRequestDto dto)
         {
             try
             {
@@ -434,6 +496,94 @@ namespace ParkMitra_BE.Services
             }
         }
 
+        public async Task<PagedResultDto<HostBookingDto>> GetSpaceBookingsBySpaceIdAsync(
+            Guid userId,
+            Guid spaceId,
+            ComputedBookingStatus status,
+            int page,
+            int pageSize,
+            string sort,
+            DateOnly? fromDate,
+            DateOnly? toDate)
+        {
+            var space = await _context.parking_spaces
+                .FirstOrDefaultAsync(s => s.id == spaceId && s.user_id == userId);
+
+            if (space == null)
+                return new PagedResultDto<HostBookingDto> { Page = page, PageSize = pageSize };
+
+            page = Math.Max(1, page);
+            pageSize = Math.Clamp(pageSize, 1, 50);
+
+            var query = _context.bookings.Where(b => b.space_id == spaceId);
+            if (fromDate.HasValue) query = query.Where(b => b.booking_date >= fromDate.Value);
+            if (toDate.HasValue) query = query.Where(b => b.booking_date <= toDate.Value);
+
+            var candidates = await query.ToListAsync();
+
+            var matching = candidates
+                .Where(b => BookingStatusCalculator.Compute(b, space.timezone) == status)
+                .ToList();
+
+            matching = sort == "oldest"
+                ? matching.OrderBy(b => b.booking_date).ThenBy(b => b.start_time).ToList()
+                : matching.OrderByDescending(b => b.booking_date).ThenByDescending(b => b.start_time).ToList();
+
+            var totalCount = matching.Count;
+
+            var pageBookings = matching
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToList();
+
+            var slotIds = pageBookings.Where(b => b.slot_id.HasValue).Select(b => b.slot_id!.Value).Distinct().ToList();
+            var slotLabelById = await _context.parking_slots
+                .Where(s => slotIds.Contains(s.id))
+                .ToDictionaryAsync(s => s.id, s => s.label);
+
+            return new PagedResultDto<HostBookingDto>
+            {
+                Items = pageBookings.Select(b => HostMapper.MapBooking(b, slotLabelById, space.timezone)).ToList(),
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
+        }
+
+        public async Task<BookingStatusCountsDto> GetBookingsCountBySpaceIdAsync(
+            Guid userId,
+            Guid spaceId,
+            DateOnly? fromDate,
+            DateOnly? toDate)
+        {
+            var space = await _context.parking_spaces
+                .FirstOrDefaultAsync(s => s.id == spaceId && s.user_id == userId);
+
+            if (space == null)
+                return new BookingStatusCountsDto();
+
+            var query = _context.bookings.Where(b => b.space_id == spaceId);
+            if (fromDate.HasValue) query = query.Where(b => b.booking_date >= fromDate.Value);
+            if (toDate.HasValue) query = query.Where(b => b.booking_date <= toDate.Value);
+
+            var candidates = await query.ToListAsync();
+
+            var counts = new BookingStatusCountsDto();
+            foreach (var b in candidates)
+            {
+                switch (BookingStatusCalculator.Compute(b, space.timezone))
+                {
+                    case ComputedBookingStatus.Upcoming: counts.Upcoming++; break;
+                    case ComputedBookingStatus.Active: counts.Active++; break;
+                    case ComputedBookingStatus.Completed: counts.Completed++; break;
+                    case ComputedBookingStatus.Cancelled: counts.Cancelled++; break;
+                }
+            }
+
+            return counts;
+        }
+
+
         public async Task<ApiResponseDto> CancelAsync(Guid userId, Guid bookingId)
         {
             var bookingEntity = await _context.bookings.FirstOrDefaultAsync(b => b.id == bookingId && b.user_id == userId);
@@ -444,10 +594,10 @@ namespace ParkMitra_BE.Services
             bookingEntity.updated_at = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
-            
-            return new ApiResponseDto { 
-                Success = true, 
-                Message = "Booking cancelled" 
+
+            return new ApiResponseDto {
+                Success = true,
+                Message = "Booking cancelled"
             };
         }
 
@@ -650,28 +800,6 @@ namespace ParkMitra_BE.Services
             await _context.SaveChangesAsync();
 
             return paymentId;
-        }
-
-        private static ComputedBookingStatus ComputeStatus(booking b)
-        {
-             if (b.status == BookingStatus.Cancelled)
-                return ComputedBookingStatus.Cancelled;
-
-            if (b.booking_date is null)
-                return ComputedBookingStatus.Upcoming;
-
-            var tz = TimeZoneInfo.FindSystemTimeZoneById(b.space?.timezone ?? "Asia/Kolkata");
-            var now = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-            var bookingDate = b.booking_date.Value.ToDateTime(TimeOnly.MinValue);
-
-            var start = bookingDate.Add((b.start_time ?? TimeOnly.MinValue).ToTimeSpan());
-            var end = b.end_time is not null
-                ? bookingDate.Add(b.end_time.Value.ToTimeSpan())
-                : start.AddMinutes(b.duration_minutes);
-
-            if (now < start) return ComputedBookingStatus.Upcoming;
-            if (now <= end) return ComputedBookingStatus.Active;
-            return ComputedBookingStatus.Completed;
         }
 
         private static bool IsTodayInTimezone(DateOnly date, string timezoneId)

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ParkMitra_BE.Enums;
+using System;
 using System.Collections.Generic;
 
 namespace ParkMitra_BE.Models;
@@ -11,8 +12,8 @@ public partial class parking_slot
 
     public string label { get; set; } = null!;
 
-    public string vehicle_type { get; set; } = null!;
-
+    public VehicleType vehicle_type { get; set; }
+    
     public bool is_active { get; set; }
 
     public DateTime created_at { get; set; }

@@ -2,7 +2,7 @@
 
 namespace ParkMitra_BE.DTOs.Booking
 {
-    public class MyBookingsDto
+    public class MySpaceBookingsDto
     {
         public Guid Id { get; set; }
         public Guid SpaceId { get; set; }
@@ -14,8 +14,6 @@ namespace ParkMitra_BE.DTOs.Booking
         public string SpaceTimezone { get; set; } = string.Empty;
         public int DurationMinutes { get; set; }
         public decimal TotalPrice { get; set; }
-        public int? Rating { get; set; }
-        public string? ReviewText { get; set; }
         public BookingStatus Status { get; set; }
         public ComputedBookingStatus ComputedStatus { get; set; } // upcoming / active / completed / cancelled
         public DateOnly? BookingDate { get; set; }
@@ -29,6 +27,12 @@ namespace ParkMitra_BE.DTOs.Booking
         public string? SlotLabel { get; set; }
         public bool HasUsedFreeExtension { get; set; }
         public int FreeExtensionMinutesUsed { get; set; }
-        public bool HasReview { get; set; }
+    }
+
+    public class MySpaceBookingsCountDto
+    {
+        public int Active { get; set; }
+        public int Completed { get; set; }
+        public int Cancelled { get; set; }
     }
 }

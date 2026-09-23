@@ -47,6 +47,8 @@ public partial class ApplicationDbContext : DbContext
 
     public virtual DbSet<space_reviewer_summary> space_reviewers_summary { get; set; }
 
+    public virtual DbSet<host_space_review_summary> host_space_review_summaries { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder
@@ -67,6 +69,12 @@ public partial class ApplicationDbContext : DbContext
             .HasPostgresExtension("extensions", "uuid-ossp")
             .HasPostgresExtension("btree_gist")
             .HasPostgresExtension("vault", "supabase_vault");
+
+        modelBuilder.Entity<host_space_review_summary>(entity =>
+        {
+            entity.HasNoKey();
+            entity.ToView("host_space_review_summary");
+        });
 
         modelBuilder.Entity<user_auth_provider>(entity =>
         {
@@ -146,7 +154,7 @@ public partial class ApplicationDbContext : DbContext
             entity.Property(e => e.id).HasDefaultValueSql("gen_random_uuid()");
             entity.Property(e => e.created_at)
                 .HasDefaultValueSql("now()")
-                .HasColumnType("timestamp without time zone");
+                .HasColumnType("timestamp with time zone");
             entity.Property(e => e.resolved).HasDefaultValue(false);
         });
 
@@ -199,6 +207,11 @@ public partial class ApplicationDbContext : DbContext
             entity.HasOne(d => d.space).WithMany(p => p.parking_slots)
                 .HasForeignKey(d => d.space_id)
                 .HasConstraintName("parking_slots_space_id_fkey");
+
+            entity.Property(e => e.vehicle_type).HasConversion(
+                v => v.ToString().ToLower(),
+                v => Enum.Parse<VehicleType>(v, true)
+            );
         });
 
         modelBuilder.Entity<parking_space>(entity =>

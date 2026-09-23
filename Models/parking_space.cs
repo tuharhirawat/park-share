@@ -51,6 +51,10 @@ public partial class parking_space
 
     public DateTime? last_feature_change_at { get; set; }
 
+    public DateTime? last_price_per_hour_change_at { get; set; }
+
+    public DateTime? last_price_per_day_change_at { get; set; }
+
     public string listing_status { get; set; } = null!;
 
     public Guid? reviewed_by { get; set; }

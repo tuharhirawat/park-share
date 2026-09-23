@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using ParkMitra_BE.Services;
+using ParkMitra_BE.DTOs.ImageUpload;
 
 namespace ParkMitra_BE.Controllers
 {
@@ -26,7 +27,8 @@ namespace ParkMitra_BE.Controllers
 
         [HttpPost("UploadListingImage")]
         [RequestSizeLimit(5 * 1024 * 1024)]
-        public async Task<IActionResult> UploadListingImage(IFormFile file)
+        public async Task<IActionResult> UploadListingImage(
+            IFormFile file, [FromForm] Guid? spaceId)
         {
             var accessToken = Request.Cookies["access_token"];
             if (string.IsNullOrEmpty(accessToken)) return Unauthorized();
@@ -35,7 +37,13 @@ namespace ParkMitra_BE.Controllers
             if (currentUser == null) return Unauthorized();
 
             if (file == null || file.Length == 0)
-                return BadRequest(new { Success = false, Message = "No file provided." });
+            {
+                return BadRequest(new
+                {
+                    Success = false,
+                    Message = "No file provided."
+                });
+            }
 
             if (!_allowedTypes.Contains(file.ContentType, StringComparer.OrdinalIgnoreCase))
             {
@@ -46,8 +54,65 @@ namespace ParkMitra_BE.Controllers
                 });
             }
 
-            var url = await _imageUploadService.UploadAsync(currentUser.UserId, file);
-            return Ok(new { Success = true, Url = url });
+            try
+            {
+                var url = await _imageUploadService.UploadAsync(currentUser.UserId, file, spaceId);
+
+                return Ok(new
+                {
+                    Success = true,
+                    Url = url
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        [HttpDelete("RemoveListingImage")]
+        public async Task<IActionResult> RemoveListingImage([FromBody] RemoveListingImageRequestDto request)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken))
+                return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (currentUser == null)
+                return Unauthorized();
+
+            if (request.SpaceId == Guid.Empty || string.IsNullOrWhiteSpace(request.ImageUrl))
+            {
+                return BadRequest(new
+                {
+                    Success = false,
+                    Message = "SpaceId and ImageUrl are required."
+                });
+            }
+
+            try
+            {
+                await _imageUploadService.RemoveAsync(
+                    currentUser.UserId, request.SpaceId, request.ImageUrl);
+
+                return Ok(new
+                {
+                    Success = true,
+                    Message = "Image removed successfully."
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
         }
     }
 }

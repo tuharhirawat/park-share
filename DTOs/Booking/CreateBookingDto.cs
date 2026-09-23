@@ -13,4 +13,11 @@ namespace ParkMitra_BE.DTOs.Booking
         public VehicleType VehicleType { get; set; }
         public Guid? SlotId { get; set; }
     }
+
+    public class CreateBookingResultDto : ApiResponseDto
+    {
+        public Guid? BookingId { get; set; }
+        public decimal? TotalPayable { get; set; }
+        public Guid PaymentId { get; set; }
+    }
 }

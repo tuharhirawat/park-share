@@ -24,5 +24,11 @@
         public DateTime CreatedAt { get; set; }
         public int CarSlots { get; set; }
         public int BikeSlots { get; set; }
+        public FieldCooldownDto TitleCooldown { get; set; } = new();
+        public FieldCooldownDto CityCooldown { get; set; } = new();
+        public FieldCooldownDto AddressCooldown { get; set; } = new();
+        public FieldCooldownDto FeaturesCooldown { get; set; } = new();
+        public FieldCooldownDto PricePerHourCooldown { get; set; } = new();
+        public FieldCooldownDto PricePerDayCooldown { get; set; } = new();
     }
 }
