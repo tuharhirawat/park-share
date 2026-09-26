@@ -2,6 +2,8 @@ export const FREE_EXTENSION_MINUTES = 10;
 
 export const MAX_DAY_MINUTES = (23 * 60) + 59;
 
+export const BOOKINGS_PAGE_DATA_SIZE = 10;
+
 export const statusConfig = {
   upcoming: {
     label: "Upcoming",

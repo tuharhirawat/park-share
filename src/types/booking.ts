@@ -1,4 +1,13 @@
-export interface Booking {
+export type MySpaceBookingReview = {
+  id: string;
+  spaceId: string;
+  rating: number;
+  reviewText: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Booking = {
   id: string;
   spaceId: string;
   spaceTitle: string;
@@ -22,17 +31,15 @@ export interface Booking {
   slotLabel: string | null;
   hasUsedFreeExtension: boolean;
   freeExtensionMinutesUsed: number;
-  hasReview: boolean;
-  rating: number | null;
-  reviewText: string | null;
 }
 
-export interface Review {
-  id: string;
-  bookingId: string;
-  rating: number;
-  reviewText: string | null;
-}
+export type MyBookingsApiResponse = {
+  items: Booking[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
 
 export interface RescheduleConfirmation {
   bookingId: string;

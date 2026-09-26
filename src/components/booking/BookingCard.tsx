@@ -19,15 +19,12 @@ import {
   Bike
 } from "lucide-react";
 
-type BookingCardProps = {
-  booking: Booking & {
-    computedStatus: string;
-    hasReview: boolean;
-  };
+interface BookingCardProps {
+  booking: Booking;
   showActions: boolean;
   cancelling: string | null;
   handleCancel: (id: string) => void;
-  onReschedule: (booking: Booking & { computedStatus: string; hasReview: boolean }) => void; // CHANGED — replaces 4 setter props
+  onReschedule: (booking: Booking) => void;
 };
 
 const BookingCard = ({
@@ -38,7 +35,7 @@ const BookingCard = ({
   onReschedule
 }: BookingCardProps) => {
   const cfg = statusConfig[booking.computedStatus];
-  const cancelledBooking = booking.status === "cancelled";
+  const cancelledBooking = booking.status === "Cancelled";
 
   return (
     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -57,7 +54,7 @@ const BookingCard = ({
               <Badge variant="outline" className="bg-yellow-500/20 text-yellow-700 text-xs">
                 Grace Used
               </Badge>
-            ) : booking.computedStatus === "completed" ? (
+            ) : booking.computedStatus === "Completed" ? (
               <Badge variant="outline" className="bg-blue-500/20 text-blue-700 text-xs">
                 Grace Unused
               </Badge>

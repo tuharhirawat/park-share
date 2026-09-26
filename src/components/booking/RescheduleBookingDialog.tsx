@@ -6,7 +6,15 @@ import ActionNote from "./ActionNote";
 import type { Booking } from "@/types/booking";
 import { MAX_DAY_MINUTES } from "@/constants/bookingConstants";
 import { STEP_DURATION } from "@/constants/spaceDetailsConstants";
-import { toMinutes, addMinutesToTime, isTodayInTimezone, getCurrentTime, getAppToday } from "@/lib/time";
+import { clampDurationToStart } from "@/lib/bookingHelpers";
+import {
+  toMinutes,
+  validatePastTime,
+  addMinutesToTime,
+  isTodayInTimezone,
+  getCurrentTime,
+  getAppToday,
+} from "@/lib/time";
 import {
   Dialog,
   DialogContent,
@@ -15,24 +23,24 @@ import {
 } from "@/components/ui/dialog";
 import DurationStepper from "../DurationStepper";
 import { RescheduleTimeSlot } from "@/viewTypes/bookingUi";
+import { parseISO } from "date-fns";
+import { toast } from "sonner";
 
-type RescheduleBookingDialogProps = {
+interface RescheduleBookingDialogProps {
   open: boolean;
   rescheduleBooking?: Booking;
   rescheduleSlot: RescheduleTimeSlot;
-  handleRescheduleDateChange: (value: string) => void;
-  handleRescheduleTimeChange: (value: string) => void;
   setRescheduleMinutes: React.Dispatch<React.SetStateAction<number>>;
   onClose: () => void;
   prepareRescheduleConfirmation: (booking: Booking) => void;
+  setRescheduleSlot: React.Dispatch<React.SetStateAction<RescheduleTimeSlot>>;
 };
 
 const RescheduleBookingDialog = ({
   open,
   rescheduleBooking,
   rescheduleSlot,
-  handleRescheduleDateChange,
-  handleRescheduleTimeChange,
+  setRescheduleSlot,
   setRescheduleMinutes,
   onClose,
   prepareRescheduleConfirmation,
@@ -54,6 +62,64 @@ const RescheduleBookingDialog = ({
     }
 
     return true;
+  };
+
+  const handleRescheduleDateChange = (value: string) => {
+    if (!value) return;
+
+    const pickedDate = parseISO(value);
+    const today = getAppToday(spaceTimezone);
+
+    const selectedDate = new Date(pickedDate);
+    selectedDate.setHours(0, 0, 0, 0);
+
+    if (selectedDate < today) {
+      toast.error("Past dates are not allowed");
+
+      setRescheduleSlot((slot) => ({
+        ...slot,
+        date: getAppToday(spaceTimezone),
+        startTime:
+          !slot.startTime ||
+            !validatePastTime(
+              slot.startTime,
+              getAppToday(spaceTimezone),
+              spaceTimezone
+            )
+            ? getCurrentTime(spaceTimezone)
+            : slot.startTime,
+      }));
+
+      return;
+    }
+
+    setRescheduleSlot((slot) => ({
+      ...slot,
+      date: pickedDate,
+      startTime:
+        isTodayInTimezone(pickedDate, spaceTimezone) &&
+          (!slot.startTime ||
+            !validatePastTime(
+              slot.startTime,
+              pickedDate,
+              spaceTimezone
+            ))
+          ? getCurrentTime(spaceTimezone)
+          : slot.startTime,
+    }));
+  };
+
+  const handleRescheduleTimeChange = (value: string) => {
+    if (!validatePastTime(value, rescheduleDate, spaceTimezone)) {
+      toast.error("Past time not allowed");
+      return;
+    }
+
+    setRescheduleSlot((slot) => ({
+      ...slot,
+      startTime: value,
+      minutes: clampDurationToStart(value, slot.minutes),
+    }));
   };
 
   return (
@@ -82,8 +148,7 @@ const RescheduleBookingDialog = ({
               value={rescheduleDate ? format(rescheduleDate, "yyyy-MM-dd") : ""}
               min={format(getAppToday(spaceTimezone), "yyyy-MM-dd")}
               onChange={(e) => {
-                if (lockStartAndDate) return;
-                handleRescheduleDateChange(e.target.value);
+                !lockStartAndDate && handleRescheduleDateChange(e.target.value);
               }}
             />
 
@@ -105,8 +170,7 @@ const RescheduleBookingDialog = ({
                     : undefined
                 }
                 onChange={(e) => {
-                  if (lockStartAndDate) return;
-                  handleRescheduleTimeChange(e.target.value);
+                  !lockStartAndDate && handleRescheduleTimeChange(e.target.value);
                 }}
               />
             </div>

@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Loader2, Filter } from "lucide-react";
+import { Filter } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,20 +14,12 @@ import BookingCard from "@/components/booking/BookingCard";
 import CompletedBookingActions from "@/components/booking/CompletedBookingActions";
 import { useRazorpayScript } from "@/hooks/useRazorpayScript";
 import { openRazorpayCheckout } from "@/lib/razorpayCheckout";
-import { RescheduleTimeSlot, ReviewDraft } from "@/viewTypes/bookingUi";
-import { MAX_DAY_MINUTES } from "@/constants/bookingConstants";
+import { RescheduleTimeSlot } from "@/viewTypes/bookingUi";
+import { MAX_DAY_MINUTES, BOOKINGS_PAGE_DATA_SIZE } from "@/constants/bookingConstants";
 import { clampDurationToStart, calculateGraceToggle } from "@/lib/bookingHelpers";
-import { Booking, RescheduleConfirmation } from "@/types/booking";
-import {
-  toMinutes,
-  validatePastTime,
-  addMinutesToTime,
-  formatTimeForDB,
-  getCurrentTime,
-  isTodayInTimezone,
-  getAppNow,
-  getAppToday,
-} from "@/lib/time";
+import { Booking, RescheduleConfirmation, MyBookingsApiResponse } from "@/types/booking";
+import BookingPagination from "@/components/booking/BookingPagination";
+import { toMinutes, addMinutesToTime, formatTimeForDB, getAppNow } from "@/lib/time";
 import {
   Select,
   SelectContent,
@@ -35,23 +27,37 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import BookingCardSkeleton from "@/components/SkeletonLoaders/BookingCardSkeleton";
+import { MySpaceBookingReview } from "@/types/booking";
 
 const MyBookingsPage = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const userId = user?.userId ?? null;
   useRazorpayScript();
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState<string | null>(null);
 
-  const [reviewDraft, setReviewDraft] = useState<ReviewDraft>({
-    bookingId: null,
-    rating: 0,
-    text: "",
-  });
-
-  const [submittingReview, setSubmittingReview] = useState(false);
+  const [spaceReviews, setSpaceReviews] = useState<Record<string, MySpaceBookingReview>>({});
+  const [reviewsLoading, setReviewsLoading] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<"all" | "completed" | "cancelled">("all");
+  const [activeTab, setActiveTab] = useState<"active" | "history">("active");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  const [activeCount, setActiveCount] = useState(0);
+  const [completedCount, setCompletedCount] = useState(0);
+  const [cancelledCount, setCancelledCount] = useState(0);
+
+  const [loadingCounts, setLoadingCounts] = useState(true);
+  const [loadingBookings, setLoadingBookings] = useState(true);
+
+  const historyCount =
+    historyFilter === "completed"
+      ? completedCount
+      : historyFilter === "cancelled"
+        ? cancelledCount
+        : completedCount + cancelledCount;
 
   // Reschedule state
   const [reschedulingId, setReschedulingId] = useState<string | null>(null);
@@ -80,67 +86,120 @@ const MyBookingsPage = () => {
     endTime: string;
   } | null>(null);
 
-  const handleRescheduleDateChange = (value: string) => {
-    if (!value) return;
+  const fetchCounts = useCallback(async () => {
+    if (!userId) return;
 
-    const pickedDate = parseISO(value);
-    const today = getAppToday(rescheduleTimezone);
-
-    const selectedDate = new Date(pickedDate);
-    selectedDate.setHours(0, 0, 0, 0);
-
-    if (selectedDate < today) {
-      toast.error("Past dates are not allowed");
-
-      setRescheduleSlot(slot => ({
-        ...slot,
-        date: getAppToday(rescheduleTimezone),
-        startTime:
-          !slot.startTime || !validatePastTime(slot.startTime, getAppToday(rescheduleTimezone), rescheduleTimezone)
-            ? getCurrentTime(rescheduleTimezone)
-            : slot.startTime,
-      }));
-
-      return;
-    }
-
-    setRescheduleSlot(slot => ({
-      ...slot,
-      date: pickedDate,
-      startTime:
-        isTodayInTimezone(pickedDate, rescheduleTimezone) && (!slot.startTime || !validatePastTime(slot.startTime, pickedDate, rescheduleTimezone))
-          ? getCurrentTime(rescheduleTimezone)
-          : slot.startTime,
-    }));
-  };
-
-  const handleRescheduleTimeChange = (value: string) => {
-    if (!validatePastTime(value, rescheduleDate, rescheduleTimezone)) {
-      toast.error("Past time not allowed");
-      return;
-    }
-
-    setRescheduleSlot(slot => ({
-      ...slot,
-      startTime: value,
-      minutes: clampDurationToStart(value, slot.minutes),
-    }));
-  };
-
-  const fetchBookings = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
+    setLoadingCounts(true);
 
     try {
-      const response = await api.get("/Booking/GetMyBookings");
+      const { data } = await api.get(
+        "/Booking/GetMySpaceBookingsCount"
+      );
 
-      setBookings(response.data);
+      setActiveCount(data?.active ?? 0);
+      setCompletedCount(data?.completed ?? 0);
+      setCancelledCount(data?.cancelled ?? 0);
     } catch (err) {
-      toast.error("Something went wrong");
+      console.error("Failed to load booking counts:", err);
+
+      setActiveCount(0);
+      setCompletedCount(0);
+      setCancelledCount(0);
     } finally {
-      setLoading(false);
+      setLoadingCounts(false);
     }
-  }, [user]);
+  }, [userId]);
+
+  useEffect(() => {
+    fetchCounts();
+  }, [fetchCounts]);
+
+  const fetchBookings = useCallback(async () => {
+    if (!userId) return;
+
+    setLoadingBookings(true);
+
+    try {
+      const response = await api.get<MyBookingsApiResponse>("/Booking/GetMyBookings", {
+        params: {
+          tab: activeTab,
+          historyFilter: activeTab === "history" ? historyFilter : "all",
+          page,
+          pageSize: BOOKINGS_PAGE_DATA_SIZE,
+        },
+      });
+
+      const result = response.data;
+
+      setBookings(
+        (result.items || []).map((booking) => ({
+          ...booking,
+          computedStatus: String(booking.computedStatus)
+            .trim()
+            .toLowerCase(),
+        }))
+      );
+
+      setTotalPages(result.totalPages ?? 1);
+    } catch (err) {
+      console.error("Failed to load bookings:", err);
+      toast.error("Something went wrong");
+      setBookings([]);
+      setTotalPages(1);
+    } finally {
+      setLoadingBookings(false);
+    }
+  }, [userId, activeTab, historyFilter, page]);
+
+  useEffect(() => {
+    const completedSpaceIds = [
+      ...new Set(
+        bookings
+          .filter((b) => b.computedStatus === "completed")
+          .map((b) => b.spaceId)
+          .filter(Boolean)
+      ),
+    ];
+
+    if (completedSpaceIds.length === 0) {
+      setSpaceReviews({});
+      setReviewsLoading(false);
+      return;
+    }
+
+    const fetchReviews = async () => {
+      setReviewsLoading(true);
+
+      try {
+        const params = new URLSearchParams();
+
+        completedSpaceIds.forEach((spaceId: string) => {
+          params.append("spaceIds", spaceId);
+        });
+
+        const reviewResponse = await api.get(
+          `/Review/user/spacebooking/reviews?${params.toString()}`
+        );
+
+        const reviewMap: Record<string, MySpaceBookingReview> = {};
+
+        (reviewResponse.data || []).forEach(
+          (review: MySpaceBookingReview) => {
+            reviewMap[review.spaceId] = review;
+          }
+        );
+
+        setSpaceReviews(reviewMap);
+      } catch (reviewError) {
+        console.error("Failed to load space reviews:", reviewError);
+        setSpaceReviews({});
+      } finally {
+        setReviewsLoading(false);
+      }
+    };
+
+    fetchReviews();
+  }, [bookings]);
 
   const refreshBookingState = useCallback(async () => {
     await fetchBookings();
@@ -151,8 +210,8 @@ const MyBookingsPage = () => {
   }, [fetchBookings]);
 
   useEffect(() => {
-    if (user) { fetchBookings(); }
-  }, [user, fetchBookings]);
+    if (userId) { fetchBookings(); }
+  }, [userId, fetchBookings]);
 
   const handleConfirmReduce = () => {
     if (!reduceConfirmation) return;
@@ -170,10 +229,15 @@ const MyBookingsPage = () => {
 
   const handleCancel = async (id: string) => {
     setCancelling(id);
+
     try {
       await api.post(`/Booking/Cancel/${id}`);
       toast.success("Booking cancelled");
-      setBookings(prev => prev.map(b => b.id === id ? { ...b, status: "cancelled" } : b));
+
+      await Promise.all([
+        fetchBookings(),
+        fetchCounts(),
+      ]);
     } catch {
       toast.error("Failed to cancel booking");
     } finally {
@@ -474,84 +538,14 @@ const MyBookingsPage = () => {
     }
   };
 
-  const handleSubmitReview = async (booking: Booking, existingReviewId?: string) => {
-    if (!user || reviewDraft.rating === 0) {
-      toast.error("Please select a rating");
-      return;
-    }
-    setSubmittingReview(true);
-
-    try {
-      await api.post("/Review/Submit", {
-        bookingId: booking.id,
-        rating: reviewDraft.rating,
-        reviewText: reviewDraft.text || null,
-      });
-
-      toast.success(existingReviewId ? "Review updated! ⭐" : "Review submitted! ⭐");
-
-      setBookings(prev =>
-        prev.map(b =>
-          b.id === booking.id
-            ? { ...b, hasReview: true, rating: reviewDraft.rating, reviewText: reviewDraft.text || null }
-            : b
-        )
-      );
-      setReviewDraft({ bookingId: null, rating: 0, text: "" });
-    } catch (err: any) {
-      const message = err?.response?.data?.message;
-      if (err?.response?.data?.errorCode === "ALREADY_REVIEWED") {
-        toast.error("You've already reviewed this booking");
-      } else {
-        toast.error(message ?? "Failed to submit review");
-      }
-    } finally {
-      setSubmittingReview(false);
-    }
-  };
-
-  const enrichedBookings = useMemo(
-    () =>
-      bookings.map(b => ({
-        ...b,
-        computedStatus: b.computedStatus.toLowerCase(),
-      })),
-    [bookings]
-  );
-
   const rescheduleBooking = useMemo(
-    () => enrichedBookings.find(b => b.id === reschedulingId),
-    [enrichedBookings, reschedulingId]
+    () => bookings.find(b => b.id === reschedulingId),
+    [bookings, reschedulingId]
   );
 
   const rescheduleTimezone = rescheduleBooking?.spaceTimezone;
 
-  const activeBookings = useMemo(
-    () =>
-      enrichedBookings.filter(
-        b => b.computedStatus === "upcoming" || b.computedStatus === "active"
-      ),
-    [enrichedBookings]
-  );
-
-  const historyBookings = useMemo(
-    () =>
-      enrichedBookings.filter(
-        b => b.computedStatus === "completed" || b.computedStatus === "cancelled"
-      ),
-    [enrichedBookings]
-  );
-
-  const filteredHistory = useMemo(
-    () => historyFilter === "all"
-      ? historyBookings
-      : historyBookings.filter(
-        b => b.computedStatus === historyFilter
-      ),
-    [historyBookings, historyFilter]
-  );
-
-  const renderBookingCard = (booking: (typeof enrichedBookings)[0], showActions: boolean) => {
+  const renderBookingCard = (booking: Booking, showActions: boolean) => {
 
     return (
       <div key={booking.id} className={`bg-card rounded-2xl p-6 card-shadow flex flex-col gap-4 ${booking.computedStatus === "active" ? "ring-2 ring-green-500/30" : ""}`}>
@@ -566,21 +560,19 @@ const MyBookingsPage = () => {
         {booking.computedStatus === "completed" && (
           <CompletedBookingActions
             booking={booking}
-            reviewDraft={reviewDraft}
-            submittingReview={submittingReview}
-            setReviewDraft={setReviewDraft}
-            onSubmitReview={handleSubmitReview}
+            existingReview={spaceReviews[booking.spaceId]}
+            reviewsLoading={reviewsLoading}
+            onReviewSaved={(review) => {
+              setSpaceReviews((prev) => ({
+                ...prev,
+                [booking.spaceId]: review,
+              }));
+            }}
           />
         )}
       </div>
     );
   };
-
-  if (authLoading || loading) {
-    return (
-      <div className="pt-24 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -588,28 +580,76 @@ const MyBookingsPage = () => {
         <div className="container mx-auto px-4">
           <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground mb-8">My Bookings</h1>
 
-          <Tabs defaultValue="active" className="space-y-6">
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => {
+              const nextTab = value as "active" | "history";
+
+              setActiveTab(nextTab);
+              setPage(1);
+              setTotalPages(1);
+              setBookings([]);
+            }}
+            className="space-y-6"
+          >
             <TabsList className="grid w-full max-w-md grid-cols-2">
-              <TabsTrigger value="active">Active ({activeBookings.length})</TabsTrigger>
-              <TabsTrigger value="history">History ({historyBookings.length})</TabsTrigger>
+              <TabsTrigger value="active">
+                Active ({loadingCounts ? "..." : activeCount})
+              </TabsTrigger>
+
+              <TabsTrigger value="history">
+                History ({loadingCounts ? "..." : historyCount})
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="active">
-              {activeBookings.length === 0 ? (
+              {loadingBookings ? (
+                <div className="space-y-4">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <BookingCardSkeleton key={index} />
+                  ))}
+                </div>
+              ) : bookings.length === 0 ? (
                 <div className="text-center py-16">
-                  <p className="text-muted-foreground text-lg mb-4">No active bookings.</p>
+                  <p className="text-muted-foreground text-lg mb-4">
+                    No active bookings.
+                  </p>
+
                   <Button onClick={() => navigate("/search")}>Find Parking</Button>
                 </div>
               ) : (
-                <div className="space-y-4">{activeBookings.map(b => renderBookingCard(b, true))}</div>
+                <div className="space-y-4">
+                  {bookings.map(b => renderBookingCard(b, true))}
+                </div>
+              )}
+
+              {!loadingBookings && bookings.length > 0 && (
+                <BookingPagination
+                  page={page}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                />
               )}
             </TabsContent>
 
             <TabsContent value="history">
               <div className="flex items-center gap-3 mb-4">
                 <Filter className="w-4 h-4 text-muted-foreground" />
-                <Select value={historyFilter} onValueChange={v => setHistoryFilter(v as any)}>
-                  <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+
+                <Select
+                  value={historyFilter}
+                  onValueChange={v => {
+                    setHistoryFilter(
+                      v as "all" | "completed" | "cancelled"
+                    );
+                    setPage(1);
+                    setTotalPages(1);
+                  }}
+                >
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+
                   <SelectContent>
                     <SelectItem value="all">All</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
@@ -617,10 +657,31 @@ const MyBookingsPage = () => {
                   </SelectContent>
                 </Select>
               </div>
-              {filteredHistory.length === 0 ? (
-                <div className="text-center py-16"><p className="text-muted-foreground text-lg">No booking history yet.</p></div>
+
+              {loadingBookings ? (
+                <div className="space-y-4">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <BookingCardSkeleton key={index} />
+                  ))}
+                </div>
+              ) : bookings.length === 0 ? (
+                <div className="text-center py-16">
+                  <p className="text-muted-foreground text-lg">
+                    No booking history yet.
+                  </p>
+                </div>
               ) : (
-                <div className="space-y-4">{filteredHistory.map(b => renderBookingCard(b, false))}</div>
+                <div className="space-y-4">
+                  {bookings.map(b => renderBookingCard(b, false))}
+                </div>
+              )}
+
+              {!loadingBookings && bookings.length > 0 && (
+                <BookingPagination
+                  page={page}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                />
               )}
             </TabsContent>
           </Tabs>
@@ -632,8 +693,7 @@ const MyBookingsPage = () => {
         open={!!reschedulingId && !rescheduleConfirmation}
         rescheduleBooking={rescheduleBooking}
         rescheduleSlot={rescheduleSlot}
-        handleRescheduleDateChange={handleRescheduleDateChange}
-        handleRescheduleTimeChange={handleRescheduleTimeChange}
+        setRescheduleSlot={setRescheduleSlot}
         setRescheduleMinutes={setRescheduleMinutes}
         onClose={handleCloseReschedule}
         prepareRescheduleConfirmation={prepareRescheduleConfirmation}
