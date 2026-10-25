@@ -21,13 +21,13 @@ import VehicleSelector from "@/components/SpaceDetails/VehicleSelector";
 import SlotSelector from "@/components/SpaceDetails/SlotSelector";
 import ErrorNotice from "@/components/ui/ErrorNotice";
 import TimeWarningDialog from "@/components/SpaceDetails/TimeWarningDialog";
-import { UserVehicle } from "@/types/vehicle";
-import { ParkingSlot } from "@/types/parking";
-import { vehicleIcons } from "@/constants/vehicleIcons";
+import { UserVehicle, ParkingSlot } from "@/types/spaceDetails";
 import { useRazorpayScript } from "@/hooks/useRazorpayScript";
 import { openRazorpayCheckout } from "@/lib/razorpayCheckout";
 import DurationStepper from "@/components/DurationStepper";
 import { getBookingTimeRange, calculateEffectiveHours } from "@/lib/spaceDetailHelpers";
+import { VehicleType, VEHICLE_TYPE_META } from "@/enums/vehicleTypeEnum";
+import NoImagePlaceholder from "@/components/NoImagePlaceholder";
 import {
   getCurrentDateTimeInTimezone,
   isTodayInTimezone,
@@ -58,7 +58,7 @@ const SpaceDetail = () => {
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [booking, setBooking] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
-  const [selectedVehicle, setSelectedVehicle] = useState<string>("");
+  const [selectedVehicle, setSelectedVehicle] = useState<VehicleType | "">("");
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>("");
   const [selectedSlotId, setSelectedSlotId] = useState<string>("");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -92,7 +92,7 @@ const SpaceDetail = () => {
         setUserVehicles(
           (response.data || []).map((v: any) => ({
             id: v.id,
-            vehicle_type: v.vehicleType,
+            vehicle_type: v.vehicleType as VehicleType,
             brand_model: v.brandModel,
             registration_number: v.registrationNumber,
           }))
@@ -104,7 +104,7 @@ const SpaceDetail = () => {
 
   // Fetch slots only for logged-in users
   useEffect(() => {
-    if (!user || !space?._dbId) {
+    if (!user || !space?.id) {
       setSlots([]);
       setAvailableSlots([]);
       setLoadingSlots(false);
@@ -113,13 +113,13 @@ const SpaceDetail = () => {
 
     setLoadingSlots(true);
 
-    api.get(`/ParkingSpace/${space._dbId}/AvailableSlots`)
+    api.get(`/ParkingSpace/${space.id}/AvailableSlots`)
       .then((response) => {
         setSlots(
           (response.data || []).map((s: any) => ({
             id: s.id,
             label: s.label,
-            vehicle_type: s.vehicleType,
+            vehicle_type: s.vehicleType as VehicleType,
             is_active: s.isActive,
           }))
         );
@@ -131,7 +131,7 @@ const SpaceDetail = () => {
       .finally(() => {
         setLoadingSlots(false);
       });
-  }, [user, space?._dbId]);
+  }, [user, space?.id]);
 
   useEffect(() => {
     if (!selectedDate) {
@@ -140,6 +140,10 @@ const SpaceDetail = () => {
     }
     if (!isTodayInTimezone(selectedDate, space.timezone)) {
       setBookingClosedToday(false);
+      if (toMinutes(startTime) > LATEST_VALID_START) {
+        setStartTime(DEFAULT_START_TIME);
+        setSelectedSlotId("");
+      }
       return;
     }
     const now = getCurrentDateTimeInTimezone(space.timezone).time;
@@ -162,7 +166,7 @@ const SpaceDetail = () => {
   }, [startTime]);
 
   useEffect(() => {
-    if (!user || !space?._dbId || !selectedDate) {
+    if (!user || !space?.id || !selectedDate) {
       setBookedVehicleIds([]);
       setBookedSlotIds([]);
       return;
@@ -178,7 +182,7 @@ const SpaceDetail = () => {
 
     api.get("/Booking/GetSpaceBookingAvailability", {
       params: {
-        spaceId: space._dbId,
+        spaceId: space.id,
         date: format(selectedDate, "yyyy-MM-dd"),
         startTime: formatTimeForDB(actualStartTime),
         endTime: formatTimeForDB(actualEndTime),
@@ -192,16 +196,12 @@ const SpaceDetail = () => {
         setBookedVehicleIds([]);
         setBookedSlotIds([]);
       });
-  }, [user, space?._dbId, selectedDate, debouncedStartTime, debouncedDuration, isFullDay]);
+  }, [user, space?.id, selectedDate, debouncedStartTime, debouncedDuration, isFullDay]);
 
   useEffect(() => {
     setAvailableVehicles(
       userVehicles
-        .filter(v =>
-          space?.vehicleTypes
-            .map(t => t.toLowerCase())
-            .includes(v.vehicle_type.toLowerCase() as any)
-        )
+        .filter(v => space?.vehicleTypes.includes(v.vehicle_type as VehicleType))
         .map(v => ({
           ...v,
           isBooked: bookedVehicleIds.includes(v.id)
@@ -225,6 +225,12 @@ const SpaceDetail = () => {
   const canIncrease = toMinutes(startTime) + duration + STEP_DURATION <= END_OF_DAY_MINUTES;
   const canDecrease = duration > MIN_DURATION;
 
+  const getSafeStartTime = (date?: Date) => {
+    if (!date || !isTodayInTimezone(date, space.timezone)) return DEFAULT_START_TIME;
+    const now = getCurrentDateTimeInTimezone(space.timezone).time;
+    return toMinutes(now) > LATEST_VALID_START ? DEFAULT_START_TIME : now;
+  };
+
   const updateDuration = (minutes: number) => {
     setDuration(minutes);
     setSelectedSlotId("");
@@ -241,7 +247,9 @@ const SpaceDetail = () => {
     }
     if (!isFullDay) {
       if (!startTime) newErrors.startTime = "Start time is required";
-      if (duration < MIN_DURATION) newErrors.duration = `Duration must be at least ${MIN_DURATION} minutes`;
+      if (toMinutes(startTime) + duration > END_OF_DAY_MINUTES) {
+        newErrors.duration = "Booking must end by 23:59. Choose an earlier start or shorter duration.";
+      }
     }
 
     // Slot selection required if slots exist
@@ -279,7 +287,7 @@ const SpaceDetail = () => {
       );
 
       const createResponse = await api.post("/Booking/CreateBooking", {
-        spaceId: space._dbId!,
+        spaceId: space.id!,
         bookingDate: format(selectedDate!, "yyyy-MM-dd"),
         startTime: formatTimeForDB(actualStartTime),
         endTime: formatTimeForDB(actualEndTime),
@@ -353,7 +361,11 @@ const SpaceDetail = () => {
       if (bookingId) {
         await api.post("/Payment/MarkPaymentAbandoned", { bookingId }).catch(() => { });
       }
-      toast.error(err.response?.data?.message || err.message || "Payment failed");
+      const data = err.response?.data;
+      const validationMessage = data?.errors
+        ? (Object.values(data.errors).flat()[0] as string)
+        : undefined;
+      toast.error(data?.message || validationMessage || err.message || "Payment failed");
       setBooking(false);
     }
   };
@@ -393,12 +405,10 @@ const SpaceDetail = () => {
     isSlotUnavailable ||
     (filteredVehicleSlots.length > 0 && !selectedSlotId);
 
-  const availableVehicleCount = availableVehicles.filter(v => !v.isBooked).length;
-
   return (
     <div className="min-h-screen bg-background">
       <div>
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
             <ArrowLeft className="w-4 h-4" /> Back
           </button>
@@ -407,24 +417,31 @@ const SpaceDetail = () => {
             <div className="lg:col-span-2 space-y-6">
 
               {/* Space Photos */}
-              <SpaceImageCarousel
-                title={space.title}
-                images={space.images}
-                image={space.image}
-              />
+              {space.imageUrls.length > 0 ? (
+                <SpaceImageCarousel
+                  title={space.title}
+                  images={space.imageUrls}
+                  image={space.imageUrls[0]}
+                />
+              ) : (
+                <div className="w-full aspect-video sm:aspect-[16/8] rounded-2xl overflow-hidden">
+                  <NoImagePlaceholder />
+                </div>
+              )}
 
               <div>
                 <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground mb-2">
                   {space.title}
                 </h1>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground mb-4">
                   <span className="flex items-center gap-1"><MapPin className="w-4 h-4" />Approximate location in {space.city}</span>
                   <span className="flex items-center gap-1"><Star className="w-4 h-4 text-accent fill-accent" /> {space.rating} ({space.reviewCount} reviews)</span>
                 </div>
-                <p className="text-muted-foreground">Hosted by <span className="font-semibold text-foreground">{space.hostName}</span></p>
-                <ApproximateLocationMap lat={space.lat} lng={space.lng} />
+                {space.lat != null && space.lng != null && (
+                  <ApproximateLocationMap lat={space.lat} lng={space.lng} />
+                )}
               </div>
-              <div className="bg-card rounded-2xl p-6 card-shadow space-y-4">
+              <div className="bg-card rounded-2xl p-4 sm:p-6 card-shadow space-y-4">
                 <h3 className="font-display font-bold text-foreground text-lg">Features & Amenities</h3>
                 <div className="flex flex-wrap gap-2">
                   {space.features.map((f: string) => (
@@ -432,21 +449,37 @@ const SpaceDetail = () => {
                   ))}
                 </div>
                 <h3 className="font-display font-bold text-foreground text-lg pt-2">Supported Vehicles</h3>
-                <div className="flex gap-2">
-                  {space.vehicleTypes.map((v: string) => (
-                    <Badge key={v} variant="outline" className="gap-1 text-sm py-1.5 px-3 capitalize">{vehicleIcons[v]} {v}</Badge>
-                  ))}
+                <div className="flex flex-wrap gap-2">
+                  {space.vehicleTypes.map((v: string) => {
+                    const vehicleType = v.toLowerCase() as VehicleType;
+                    const meta = VEHICLE_TYPE_META[vehicleType];
+
+                    if (!meta) return null;
+
+                    const Icon = meta.icon;
+
+                    return (
+                      <Badge
+                        key={v}
+                        variant="outline"
+                        className="gap-1 text-sm py-1.5 px-3"
+                      >
+                        <Icon className="w-4 h-4" />
+                        {meta.label}
+                      </Badge>
+                    );
+                  })}
                 </div>
               </div>
-              <div className="bg-card rounded-2xl p-6 card-shadow space-y-4">
+              <div className="bg-card rounded-2xl p-4 sm:p-6 card-shadow space-y-4">
                 <h3 className="font-display font-bold text-foreground text-lg">Recent Reviews</h3>
-                <ReviewsList spaceId={space._dbId || space.id} />
+                <ReviewsList spaceId={space.id || space.id} />
               </div>
             </div>
 
             {/* Booking sidebar */}
             <div className="lg:col-span-1">
-              <div className="bg-card rounded-2xl p-6 card-shadow sticky top-24 space-y-5">
+              <div className="bg-card rounded-2xl p-4 sm:p-6 card-shadow lg:sticky lg:top-24 space-y-5">
                 <div className="text-center">
                   <div className="text-3xl font-bold text-foreground">₹{space.pricePerHour}<span className="text-base font-normal text-muted-foreground">/hr</span></div>
                   {space.pricePerDay > 0 && <div className="text-sm text-muted-foreground">or ₹{space.pricePerDay}/day</div>}
@@ -465,7 +498,6 @@ const SpaceDetail = () => {
                 {/* Vehicle selector */}
                 <VehicleSelector
                   loadingVehicles={loadingVehicles}
-                  availableVehicleCount={availableVehicleCount}
                   availableVehicles={availableVehicles}
                   selectedVehicleId={selectedVehicleId}
                   setSelectedVehicleId={setSelectedVehicleId}
@@ -484,7 +516,7 @@ const SpaceDetail = () => {
                       setIsFullDay(v);
                       setSelectedSlotId("");
                       if (!v) {
-                        setStartTime(getCurrentDateTimeInTimezone(space.timezone).time);
+                        setStartTime(getSafeStartTime(selectedDate));
                       }
                       setErrors(prev => ({ ...prev, startTime: "", duration: "" }));
                     }}
@@ -502,7 +534,7 @@ const SpaceDetail = () => {
                         type="time"
                         value={startTime}
                         min={isTodayInTimezone(selectedDate, space.timezone) ? getCurrentDateTimeInTimezone(space.timezone).time : "00:00"}
-                        max={"23:29"}
+                        max={addMinutesToTime("00:00", LATEST_VALID_START)}
                         onChange={(e) => {
                           const value = e.target.value;
 
@@ -532,7 +564,7 @@ const SpaceDetail = () => {
                         canIncrease={canIncrease}
                         onDecrease={() => updateDuration(duration - STEP_DURATION)}
                         onIncrease={() => updateDuration(duration + STEP_DURATION)}
-                        subtext={`${startTime} → ${addMinutesToTime(startTime, duration)}`}
+                        subtext={`${startTime} → ${addMinutesToTime(startTime, duration, END_OF_DAY_MINUTES)}`}
                       />
 
                       {/* free hand time selection */}

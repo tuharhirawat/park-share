@@ -8,7 +8,7 @@ import { AuthProvider } from "@/hooks/use-auth";
 import { hasEmailAuth, validateAuthConfig } from "./config/authConfig.ts";
 import MainLayout from "@/layouts/MainLayout.tsx";
 import Index from "./pages/Index.tsx";
-import SearchPage from "./pages/SearchPage.tsx";
+import SpaceSearchDashboard from "./pages/SpaceSearchDashboard.tsx";
 import SpaceDetail from "./pages/SpaceDetail.tsx";
 import LoginPage from "./pages/LoginPage.tsx";
 import SignupPage from "./pages/SignupPage.tsx";
@@ -23,7 +23,7 @@ import About from "@/pages/About.jsx";
 import Contact from "@/pages/Contact.jsx";
 import Terms from "@/pages/Terms.tsx";
 import Privacy from "@/pages/Privacy.jsx";
-import HostListingHub from "./pages/HostListingHub.tsx";
+import HostSpaceListingsDashboard from "@/pages/HostSpaceListingsDashboard.tsx"
 import AuthCallback from "./components/AuthCallback.tsx";
 
 const queryClient = new QueryClient();
@@ -40,14 +40,14 @@ const App = () => (
             <Routes>
               <Route element={<MainLayout />}>
                 <Route path="/" element={<Index />} />
-                <Route path="/search" element={<SearchPage />} />
+                <Route path="/search" element={<SpaceSearchDashboard />} />
                 <Route path="/space/:id" element={<SpaceDetail />} />
                 <Route path="/auth/callback" element={<AuthCallback />} />
                 <Route
                   path="/host/host-listing"
                   element={
                     <ProtectedRoute>
-                      <HostListingHub />
+                      <HostSpaceListingsDashboard />
                     </ProtectedRoute>
                   }
                 />

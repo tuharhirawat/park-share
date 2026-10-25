@@ -2,15 +2,15 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { Space, SpaceCardData } from "@/types/host";
 import api from "@/services/api";
 import SummaryCards from "@/components/host/SummaryCards";
 import SpaceCardSkeleton from "@/components/SkeletonLoaders/SpaceCardSkeleton";
 import SpaceCard from "@/components/host/SpaceCard";
-import SpaceOverview from "@/components/host/SpaceOverview";
+import HostDashboardSpaceOverview from "@/components/host/HostDashboardSpaceOverview";
 import { HOST_DASHBOARD_PAGE_SIZE } from "@/constants/hostDashboardConstants";
+import Pagination from "@/components/Pagination";
 
 const HostDashboard = () => {
   const { user } = useAuth();
@@ -127,7 +127,7 @@ const HostDashboard = () => {
 
         <div className="mt-8">
           {selectedSpace ? (
-            <SpaceOverview
+            <HostDashboardSpaceOverview
               space={selectedSpace}
               onBack={() => setSelectedSpaceId(null)}
               onChanged={fetchAll}
@@ -168,33 +168,11 @@ const HostDashboard = () => {
                 ))}
               </div>
 
-              {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-2 pt-4">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    disabled={currentPage === 1}
-                    onClick={() =>
-                      setCurrentPage((p) => Math.max(1, p - 1))
-                    }
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-
-                  <span className="text-sm text-muted-foreground px-2">
-                    Page {currentPage} of {totalPages}
-                  </span>
-
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    disabled={currentPage === totalPages}
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
-              )}
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
             </div>
           )}
         </div>

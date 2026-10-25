@@ -12,25 +12,29 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Dialog, DialogContent, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import MapWithSearch, { type MapWithSearchHandle } from "@/components/MapWithSearch";
 import { getLoginRoute } from "@/config/authConfig";
+import {
+  getStates,
+  getCitiesByState,
+  type State,
+  type City,
+} from "@/services/locationService";
+import { Skeleton } from "../ui/skeleton";
+import SearchableDropdown from "../ui/SearchableDropdown";
+import { type ReapplySpace } from "@/types/hostSpaceListings";
+import LocationPickerDialog from "@/components/LocationPickerDialog";
 
 const featureOptions = ["CCTV", "Covered", "Gated", "Guard", "Well-Lit", "EV Charging", "24/7 Access"];
 
 const listingSchema = z.object({
   title: z.string().trim().min(5, "Title must be at least 5 characters").max(100, "Title is too long"),
   address: z.string().trim().min(5, "Address must be at least 5 characters").max(200),
-  city: z.string().trim().min(2, "City must be at least 2 characters").max(50),
-  pricePerHour: z
-    .string()
-    .min(1, "Price per hour is required")
-    .refine((v) => !isNaN(Number(v)) && Number(v) > 0, "Must be a positive number")
+  cityId: z.string(),
+  pricePerHour: z.string().min(1, "Price per hour is required")
+    .refine((v) => !isNaN(Number(v)) && Number(v) > 0, "Must be greater than 0")
     .refine((v) => Number(v) <= 10000, "Price seems too high"),
-  pricePerDay: z
-    .string()
-    .optional()
-    .refine((v) => !v || (!isNaN(Number(v)) && Number(v) > 0), "Must be a positive number"),
+  pricePerDay: z.string().optional()
+    .refine((v) => !v || (!isNaN(Number(v)) && Number(v) > 0), "Must be greater than 0"),
   description: z.string().max(1000, "Description is too long").optional(),
   carSlots: z
     .string()
@@ -40,20 +44,21 @@ const listingSchema = z.object({
     .string()
     .min(1, "Required")
     .refine((v) => !isNaN(Number(v)) && Number(v) >= 0 && Number(v) <= 100, "Must be 0-100"),
+  features: z
+    .array(z.string())
+    .min(1, "Please select at least one feature"),
 });
 
 type ListingForm = z.infer<typeof listingSchema>;
 
-type Props = {
-  editSpace?: any;
+type HostListingPageProps = {
+  editSpace?: ReapplySpace | null;
 };
 
-const HostListingPage = ({ editSpace }: Props) => {
+const HostListingPage = ({ editSpace }: HostListingPageProps) => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const mapRef = useRef<MapWithSearchHandle | null>(null);
-  const [features, setFeatures] = useState<string[]>([]);
   const [images, setImages] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [existingImages, setExistingImages] = useState<string[]>([]);
@@ -72,15 +77,21 @@ const HostListingPage = ({ editSpace }: Props) => {
   const [hostModalOpen, setHostModalOpen] = useState(false);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
 
+  const [states, setStates] = useState<State[]>([]);
+  const [cities, setCities] = useState<City[]>([]);
+  const [selectedStateId, setSelectedStateId] = useState("");
+  const [loadingStates, setLoadingStates] = useState(false);
+  const [loadingCities, setLoadingCities] = useState(false);
+
   const form = useForm<ListingForm>({
     resolver: zodResolver(listingSchema),
 
     defaultValues: {
       title: editSpace?.title || "",
       address: editSpace?.address || "",
-      city: editSpace?.city || "",
-      pricePerHour: editSpace?.price_per_hour?.toString() || "",
-      pricePerDay: editSpace?.price_per_day?.toString() || "",
+      cityId: "",
+      pricePerHour: editSpace?.pricePerHour?.toString() || "",
+      pricePerDay: editSpace?.pricePerDay?.toString() || "",
       description: editSpace?.description || "",
       carSlots: String(
         editSpace?.carSlots ?? 2
@@ -88,7 +99,8 @@ const HostListingPage = ({ editSpace }: Props) => {
       bikeSlots: String(
         editSpace?.bikeSlots ?? 2
       ),
-    }
+      features: editSpace?.features || [],
+    },
   });
 
   useEffect(() => {
@@ -104,43 +116,81 @@ const HostListingPage = ({ editSpace }: Props) => {
   }, [user, loading, navigate]);
 
   useEffect(() => {
-    if (!editSpace)
-      return;
+    const loadStates = async () => {
+      try {
+        setLoadingStates(true);
 
-    setFeatures(editSpace.features || []);
-    setExistingImages(editSpace.image_urls || []);
+        const data = await getStates();
+        setStates(data);
+      } catch (error) {
+        console.error("Failed to load states:", error);
+        setStates([]);
+        toast.error("Failed to load states");
+      } finally {
+        setLoadingStates(false);
+      }
+    };
+
+    loadStates();
+  }, []);
+
+  useEffect(() => {
+    if (editSpace) {
+      return;
+    }
+
+    if (!selectedStateId) {
+      setCities([]);
+      form.setValue("cityId", "");
+      return;
+    }
+
+    const loadCities = async () => {
+      try {
+        setLoadingCities(true);
+        const data = await getCitiesByState(selectedStateId);
+        setCities(data);
+      } catch (error) {
+        console.error("Failed to load cities:", error);
+        setCities([]);
+      } finally {
+        setLoadingCities(false);
+      }
+    };
+
+    loadCities();
+  }, [selectedStateId, editSpace, form]);
+
+  useEffect(() => {
+    if (!editSpace) {
+      return;
+    }
+
+    setExistingImages(editSpace.imageUrls || []);
     setImages([]);
-    setImagePreviews(editSpace.image_urls || []);
+    setImagePreviews(editSpace.imageUrls || []);
 
     setLocation({
       lat: editSpace.lat,
       lng: editSpace.lng,
-      address: editSpace.address
+      address: editSpace.address,
     });
 
     form.reset({
       title: editSpace.title,
       address: editSpace.address,
-      city: editSpace.city,
-      pricePerHour: String(
-        editSpace.price_per_hour || ""
-      ),
-      pricePerDay: String(
-        editSpace.price_per_day || ""
-      ),
+      pricePerHour: editSpace.pricePerHour?.toString() || "",
+      pricePerDay: editSpace.pricePerDay?.toString() || "",
       description: editSpace.description || "",
       carSlots: String(
         editSpace.carSlots ?? 0
       ),
       bikeSlots: String(
         editSpace.bikeSlots ?? 0
-      )
+      ),
+      features: editSpace.features || [],
     });
   }, [editSpace, form]);
-
-  const toggleItem = (arr: string[], setArr: (v: string[]) => void, item: string) => {
-    setArr(arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item]);
-  };
 
   const openMapModal = () => {
     if (location.lat && location.lng && location.address) {
@@ -197,17 +247,14 @@ const HostListingPage = ({ editSpace }: Props) => {
   };
 
   const removeImage = (index: number) => {
-
     const removedUrl = imagePreviews[index];
 
     if (removedUrl.startsWith("blob:")) {
       URL.revokeObjectURL(removedUrl);
 
-      const blobIndex = imagePreviews.slice(
-        0, index
-      ).filter(
-        x => x.startsWith("blob:")
-      ).length;
+      const blobIndex = imagePreviews.slice(0, index)
+        .filter(x => x.startsWith("blob:"))
+        .length;
 
       setImages(
         prev => prev.filter(
@@ -239,7 +286,6 @@ const HostListingPage = ({ editSpace }: Props) => {
       formData.append("file", file);
 
       const response = await api.post("/ImageUpload/UploadListingImage", formData);
-
       urls.push(response.data.url);
     }
 
@@ -248,6 +294,18 @@ const HostListingPage = ({ editSpace }: Props) => {
 
   const onSubmit = async (values: ListingForm) => {
     if (!user) return;
+
+    if (!editSpace) {
+      if (!selectedStateId) {
+        toast.error("Please select a state");
+        return;
+      }
+
+      if (!values.cityId) {
+        toast.error("Please select a city");
+        return;
+      }
+    }
 
     if (!location.lat || !location.lng) {
       toast.error("Please select location on map");
@@ -271,13 +329,15 @@ const HostListingPage = ({ editSpace }: Props) => {
       const payload = {
         title: values.title,
         address: values.address,
-        city: values.city,
+        ...(editSpace ? {} : { cityId: values.cityId }),
         pricePerHour: parseFloat(values.pricePerHour),
-        pricePerDay: values.pricePerDay ? parseFloat(values.pricePerDay) : null,
+        pricePerDay: values.pricePerDay
+          ? parseFloat(values.pricePerDay)
+          : null,
         description: values.description || null,
         carSlots,
         bikeSlots,
-        features,
+        features: values.features,
         imageUrls: finalImages,
         lat: location.lat,
         lng: location.lng,
@@ -288,7 +348,7 @@ const HostListingPage = ({ editSpace }: Props) => {
         : await api.post("/ParkingSpace/CreateParkingSpace", payload);
 
       toast.success(response.data.message);
-      navigate("/host/dashboard");
+      navigate("/host/host-listing");
     } catch (err: any) {
       toast.error(err.message || "Failed to create listing");
     } finally {
@@ -315,10 +375,13 @@ const HostListingPage = ({ editSpace }: Props) => {
                 </FormItem>
               )} />
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField control={form.control} name="address" render={({ field }) => (
+              <FormField
+                control={form.control}
+                name="address"
+                render={({ field }) => (
                   <FormItem>
                     <FormLabel>Address</FormLabel>
+
                     <FormControl>
                       <Input
                         placeholder="Click to select location"
@@ -327,30 +390,89 @@ const HostListingPage = ({ editSpace }: Props) => {
                         onClick={openMapModal}
                       />
                     </FormControl>
+
                     <FormMessage />
                   </FormItem>
-                )} />
-                <FormField control={form.control} name="city" render={({ field }) => (
+                )}
+              />
+
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FormItem>
-                    <FormLabel>City</FormLabel>
-                    <FormControl><Input placeholder="City" {...field} /></FormControl>
-                    <FormMessage />
+                    <FormLabel>State</FormLabel>
+
+                    {editSpace ? (
+                      <Input value={editSpace.stateName} readOnly disabled />
+                    ) : loadingStates ? (
+                      <Skeleton className="h-10 w-full rounded-xl" />
+                    ) : (
+                      <SearchableDropdown
+                        value={selectedStateId}
+                        options={states}
+                        placeholder="Select state"
+                        searchPlaceholder="Search state..."
+                        onChange={(stateId) => {
+                          setSelectedStateId(stateId);
+                          form.setValue("cityId", "");
+                        }}
+                      />
+                    )}
                   </FormItem>
-                )} />
+
+                  <FormField
+                    control={form.control}
+                    name="cityId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>City</FormLabel>
+
+                        {editSpace ? (
+                          <Input value={editSpace.cityName} readOnly disabled />
+                        ) : loadingCities ? (
+                          <Skeleton className="h-10 w-full rounded-xl" />
+                        ) : (
+                          <FormControl>
+                            <SearchableDropdown
+                              value={field.value}
+                              options={cities}
+                              placeholder={!selectedStateId ? "Select state first" : "Select city"}
+                              searchPlaceholder="Search city..."
+                              disabled={!selectedStateId}
+                              onChange={(cityId) => field.onChange(cityId)}
+                            />
+                          </FormControl>
+                        )}
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {editSpace && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-muted-foreground">
+                    <p>
+                      <span className="font-medium text-foreground">
+                        State and city cannot be changed when reapplying for a space.
+                      </span>{" "}
+                      If these details are incorrect, please contact the support team to have
+                      the existing space removed and create a new space with the correct details.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField control={form.control} name="pricePerHour" render={({ field }) => (
                   <FormItem>
                     <FormLabel className="flex items-center gap-2"><IndianRupee className="w-4 h-4 text-primary" /> Price per Hour</FormLabel>
-                    <FormControl><Input type="number" placeholder="₹40" {...field} /></FormControl>
+                    <FormControl><Input type="number" min="0" placeholder="₹40" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
                 <FormField control={form.control} name="pricePerDay" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Price per Day</FormLabel>
-                    <FormControl><Input type="number" placeholder="₹300" {...field} /></FormControl>
+                    <FormControl><Input type="number" min="0" placeholder="₹300" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -399,17 +521,50 @@ const HostListingPage = ({ editSpace }: Props) => {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2"><Shield className="w-4 h-4 text-primary" /> Features & Amenities</label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {featureOptions.map(f => (
-                    <label key={f} className="flex items-center gap-2 text-sm cursor-pointer">
-                      <Checkbox checked={features.includes(f)} onCheckedChange={() => toggleItem(features, setFeatures, f)} />
-                      {f}
-                    </label>
-                  ))}
-                </div>
-              </div>
+              <FormField
+                control={form.control}
+                name="features"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-primary" />
+                      Features & Amenities
+                    </FormLabel>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {featureOptions.map((feature) => (
+                        <label
+                          key={feature}
+                          className="flex items-center gap-2 text-sm cursor-pointer"
+                        >
+                          <Checkbox
+                            checked={field.value.includes(feature)}
+                            onCheckedChange={(checked) => {
+                              const currentFeatures = field.value;
+
+                              if (checked) {
+                                field.onChange([
+                                  ...currentFeatures,
+                                  feature,
+                                ]);
+                              } else {
+                                field.onChange(
+                                  currentFeatures.filter(
+                                    (item) => item !== feature
+                                  )
+                                );
+                              }
+                            }}
+                          />
+
+                          {feature}
+                        </label>
+                      ))}
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField control={form.control} name="description" render={({ field }) => (
                 <FormItem>
@@ -439,64 +594,22 @@ const HostListingPage = ({ editSpace }: Props) => {
         </div>
       </div>
 
-      <Dialog open={mapOpen} onOpenChange={(open) => { if (!open) closeMapModal(); setMapOpen(open); }}>
-        <DialogContent className="flex h-[90vh] min-h-[70vh] w-[min(86vw,72rem)] max-w-[86vw] max-h-[94vh] flex-col rounded-[32px] border border-white/10 bg-slate-950/95 shadow-[0_35px_70px_-30px_rgba(15,23,42,0.9)] backdrop-blur-xl overflow-hidden">
-
-          <DialogTitle className="text-white text-lg font-semibold">
-            Select Location
-          </DialogTitle>
-
-          <div className="flex-1 min-h-0 overflow-hidden px-4 sm:px-6">
-            <div className="relative h-full min-h-[42rem] overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/80 shadow-inner shadow-slate-950/40">
-              <MapWithSearch
-                ref={mapRef}
-                onLoadingChange={setIsFetchingLocation}
-                initialLocation={pendingLocation ?? (location.lat && location.lng && location.address ? { lat: location.lat, lng: location.lng, address: location.address } : undefined)}
-                onSelect={(loc: any) => {
-                  setPendingLocation(loc);
-                }}
-              />
-            </div>
-          </div>
-
-          <DialogFooter className="mt-4 flex flex-col gap-3 sm:flex-row sm:justify-end sm:px-6 sm:pb-6">
-            <button
-              type="button"
-              onClick={closeMapModal}
-              className="inline-flex items-center justify-center rounded-2xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
-            >
-              Cancel
-            </button>
-
-            <button
-              type="button"
-              disabled={isFetchingLocation}
-              onClick={() => {
-                if (!mapRef.current) {
-                  toast.error("Map not ready");
-                  return;
-                }
-
-                mapRef.current.useCurrentLocation();
-              }}
-              className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-sky-500 px-5 py-3 text-sm font-semibold text-white shadow-xl shadow-sky-500/20 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isFetchingLocation
-                ? "Fetching location..."
-                : "Use Current Location"}
-            </button>
-
-            <button
-              type="button"
-              onClick={confirmMapLocation}
-              className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-primary to-sky-500 px-5 py-3 text-sm font-semibold text-white shadow-xl shadow-sky-500/20 transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!pendingLocation}
-            >
-              Confirm Location
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <LocationPickerDialog
+        open={mapOpen}
+        pendingLocation={pendingLocation}
+        isFetchingLocation={isFetchingLocation}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeMapModal();
+          } else {
+            setMapOpen(true);
+          }
+        }}
+        onLoadingChange={setIsFetchingLocation}
+        onSelect={setPendingLocation}
+        onConfirm={confirmMapLocation}
+        contentClassName="w-[calc(100%-1rem)] max-w-xl rounded-xl border border-border/50 p-5"
+      />
     </div>
   );
 };

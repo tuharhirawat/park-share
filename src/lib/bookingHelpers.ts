@@ -56,13 +56,6 @@ export const canExtendBooking = (booking: Booking): boolean => {
   return end + STEP_DURATION <= MAX_DAY_MINUTES;
 };
 
-export const getDisplayLocation = (booking: Booking & { computedStatus: string }): string => {
-  if (booking.computedStatus === "completed" || booking.computedStatus === "cancelled") {
-    return `Previously parked in ${booking.spaceCity}`;
-  }
-  return `${booking.spaceAddress}, ${booking.spaceCity}`;
-};
-
 export const clampDurationToStart = (startTime: string, minutes: number): number => {
   const maxAllowed = MAX_DAY_MINUTES - toMinutes(startTime);
   if (minutes <= maxAllowed) return minutes;

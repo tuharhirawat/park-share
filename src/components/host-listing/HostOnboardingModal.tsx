@@ -15,12 +15,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { Loader2, IndianRupee, Shield, Users, Scale } from "lucide-react";
 
-interface Props {
+interface HostOnboardingModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-const HostOnboardingModal = ({ open, onOpenChange }: Props) => {
+const HostOnboardingModal = ({ open, onOpenChange }: HostOnboardingModalProps) => {
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [accepted, setAccepted] = useState(false);

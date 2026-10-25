@@ -12,7 +12,7 @@ export const getCurrentDateTimeInTimezone = (timezone: string = FALLBACK_TIMEZON
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hour12: false,
+    hourCycle: "h23",
   });
 
   const parts = formatter.formatToParts(now);
@@ -70,7 +70,6 @@ export const validatePastTime = (
   if (!isTodayInTimezone(selectedDate, timezone)) return true;
   return !isPastTime(selectedDate, selectedTime, timezone);
 };
-
  
 export const toMinutes = (time: string): number => {
   const [hours, minutes] = time.split(":").map(Number);

@@ -28,6 +28,7 @@ export type Space = {
   title: string;
   address: string;
   city: string;
+  state: string;
   pricePerHour: number;
   pricePerDay: number | null;
   vehicleTypes?: string[];
@@ -47,7 +48,6 @@ export type Space = {
   pricePerHourCooldown: FieldCooldown;
   pricePerDayCooldown: FieldCooldown;
   titleCooldown: FieldCooldown;
-  cityCooldown: FieldCooldown;
   addressCooldown: FieldCooldown;
   featuresCooldown: FieldCooldown;
 };

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import api from "@/services/api";
 import { featureOptions } from "@/lib/hostDashboardHelpers";
 import { Space, FieldCooldown } from "@/types/host";
-import LocationPickerDialog from "./LocationPickerDialog";
+import LocationPickerDialog from "@/components/LocationPickerDialog";
 
 interface EditSpaceDialogProps {
   space: Space | null;
@@ -19,7 +19,6 @@ const EditSpaceDialog = ({ space, onClose, onSaved }: EditSpaceDialogProps) => {
   const [editingSpace, setEditingSpace] = useState<Space | null>(space);
   const [fieldErrors, setFieldErrors] = useState<{
     title?: string;
-    city?: string;
     address?: string;
     features?: string;
     pricePerHour?: string;
@@ -31,7 +30,6 @@ const EditSpaceDialog = ({ space, onClose, onSaved }: EditSpaceDialogProps) => {
   const [mapOpen, setMapOpen] = useState(false);
   const [pendingLocation, setPendingLocation] = useState<any>(null);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
-  const mapRef = useRef<any>(null);
 
   useEffect(() => {
     setEditingSpace(space);
@@ -135,7 +133,6 @@ const EditSpaceDialog = ({ space, onClose, onSaved }: EditSpaceDialogProps) => {
 
     return (
       editingSpace.title.trim() !== space.title.trim() ||
-      editingSpace.city.trim() !== space.city.trim() ||
       editingSpace.address.trim() !== space.address.trim() ||
       editingSpace.lat !== space.lat ||
       editingSpace.lng !== space.lng ||
@@ -163,7 +160,6 @@ const EditSpaceDialog = ({ space, onClose, onSaved }: EditSpaceDialogProps) => {
         {
           title: editingSpace.title,
           address: editingSpace.address,
-          city: editingSpace.city,
           lat: editingSpace.lat,
           lng: editingSpace.lng,
           pricePerHour: editingSpace.pricePerHour,
@@ -230,6 +226,28 @@ const EditSpaceDialog = ({ space, onClose, onSaved }: EditSpaceDialogProps) => {
                 {fieldErrors.title && <p className="text-xs text-red-500">{fieldErrors.title}</p>}
               </div>
 
+              {/* State & City */}
+              <div className="space-y-1.5 min-w-0">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5 min-w-0">
+                    <label className="text-xs font-medium text-muted-foreground">State</label>
+                    <Input className="h-9 w-full text-sm" value={editingSpace.state} disabled readOnly />
+                  </div>
+                  <div className="space-y-1.5 min-w-0">
+                    <label className="text-xs font-medium text-muted-foreground">City</label>
+                    <Input className="h-9 w-full text-sm" value={editingSpace.city} disabled readOnly />
+                  </div>
+                </div>
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-muted-foreground">
+                  <p>
+                    <span className="font-medium text-foreground">
+                      State and city cannot be changed once confirmed.
+                    </span>{" "}
+                    If the Space has been shifted to a different state or city, please apply for a new Space.
+                  </p>
+                </div>
+              </div>
+
               {/* Address */}
               <div className="space-y-1.5 min-w-0">
                 <label className="text-xs font-medium text-muted-foreground">
@@ -256,35 +274,6 @@ const EditSpaceDialog = ({ space, onClose, onSaved }: EditSpaceDialogProps) => {
                 {fieldErrors.address && (
                   <p className="text-xs text-red-500">
                     {fieldErrors.address}
-                  </p>
-                )}
-              </div>
-
-              {/* City */}
-              <div className="space-y-1.5 min-w-0">
-                <label className="text-xs font-medium text-muted-foreground">City</label>
-
-                <Input
-                  className="h-9 w-full text-sm"
-                  value={editingSpace.city}
-                  onChange={(e) => updateField("city", e.target.value)}
-                  placeholder="City"
-                  {...readOnlyProps}
-                  disabled={
-                    isReadOnlyView ||
-                    editingSpace.cityCooldown?.isActive
-                  }
-                />
-
-                {editingSpace.cityCooldown?.isActive && (
-                  <p className="text-xs text-amber-500">
-                    {getCooldownMessage(editingSpace.cityCooldown)}
-                  </p>
-                )}
-
-                {fieldErrors.city && (
-                  <p className="text-xs text-red-500">
-                    {fieldErrors.city}
                   </p>
                 )}
               </div>
@@ -428,7 +417,6 @@ const EditSpaceDialog = ({ space, onClose, onSaved }: EditSpaceDialogProps) => {
         open={mapOpen}
         pendingLocation={pendingLocation}
         isFetchingLocation={isFetchingLocation}
-        mapRef={mapRef}
         onOpenChange={(open) => {
           setMapOpen(open);
 
@@ -439,6 +427,7 @@ const EditSpaceDialog = ({ space, onClose, onSaved }: EditSpaceDialogProps) => {
         onLoadingChange={setIsFetchingLocation}
         onSelect={setPendingLocation}
         onConfirm={handleConfirmLocation}
+        contentClassName="w-[calc(100%-1rem)] max-w-xl rounded-xl border border-border/50 p-5"
       />
     </>
   );

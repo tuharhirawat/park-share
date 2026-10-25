@@ -14,7 +14,7 @@ export const getBookingTimeRange = (
   timezone: string
 ) => {
   if (!selectedDate) {
-    return { startTime, endTime: addMinutesToTime(startTime, duration) };
+    return { startTime, endTime: addMinutesToTime(startTime, duration, END_OF_DAY_MINUTES) };
   }
 
   if (isFullDay) {
@@ -25,7 +25,7 @@ export const getBookingTimeRange = (
     };
   }
 
-  return { startTime, endTime: addMinutesToTime(startTime, duration) };
+  return { startTime, endTime: addMinutesToTime(startTime, duration, END_OF_DAY_MINUTES) };
 };
 
 export const calculateEffectiveHours = (

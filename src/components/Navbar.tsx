@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import AuthButtons from "@/components/AuthButtons";
-import HostOnboardingModal from "@/components/HostOnboardingModal";
+import HostOnboardingModal from "@/components/host-listing/HostOnboardingModal";
 import { getLoginRoute, hasEmailAuth } from "@/config/authConfig";
 import { cn } from "@/lib/utils";
 

@@ -1,21 +1,17 @@
 import React from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ParkingSlot } from "@/types/parking";
+import { ParkingSlot } from "@/types/spaceDetails";
 
-type SlotSelectorProps = {
+interface SlotSelectorProps {
   selectedVehicle: string;
   filteredVehicleSlots: ParkingSlot[];
   availableSlots: ParkingSlot[];
   loadingSlots: boolean;
   selectedSlotId: string;
-  setSelectedSlotId: React.Dispatch<
-    React.SetStateAction<string>
-  >;
+  setSelectedSlotId: React.Dispatch<React.SetStateAction<string>>;
   errors: Record<string, string>;
-  setErrors: React.Dispatch<
-    React.SetStateAction<Record<string, string>>
-  >;
+  setErrors: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 };
 
 const SlotSelector = ({

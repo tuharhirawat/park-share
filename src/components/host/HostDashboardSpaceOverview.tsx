@@ -7,12 +7,10 @@ import {
   CalendarClock,
   ParkingCircle
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import api from "@/services/api";
-import { getStatusStyles } from "@/lib/hostDashboardHelpers";
 import { Space, ParkingSlot } from "@/types/host";
 import EditSpaceDialog from "@/components/host/EditSpaceDialog";
 import SlotManagementDialog from "@/components/host/SlotManagementDialog";
@@ -22,6 +20,7 @@ import HostSpaceOverviewEarningsTab from "@/components/host/tabs/HostSpaceOvervi
 import HostSpaceOverviewAnalyticsTab from "@/components/host/tabs/HostSpaceOverviewAnalyticsTab";
 import HostSpaceOverviewBookingsTab from "@/components/host/tabs/HostSpaceOverviewBookingsTab";
 import HostSpaceOverviewTab from "@/components/host/tabs/HostSpaceOverviewTab";
+import { VehicleType } from "@/enums/vehicleTypeEnum";
 
 interface SpaceOverviewProps {
   space: Space;
@@ -38,15 +37,7 @@ const SECTIONS = [
   { id: "reviews", label: "Reviews" },
 ] as const;
 
-// Vehicle type comes back inconsistently (e.g. "car" vs "Car" vs a raw enum
-// number) depending on how a given endpoint serializes it. Normalize once
-// here instead of trusting exact string equality everywhere.
-const normalizeVehicleType = (value: unknown): "car" | "bike" => {
-  if (typeof value === "number") return value === 1 ? "bike" : "car";
-  return String(value ?? "").toLowerCase().startsWith("bike") ? "bike" : "car";
-};
-
-const SpaceOverview = ({ space, onBack, onChanged }: SpaceOverviewProps) => {
+const HostDashboardSpaceOverview = ({ space, onBack, onChanged }: SpaceOverviewProps) => {
   const [activeSection, setActiveSection] = useState<string>("overview");
   const [managingSlotsOpen, setManagingSlotsOpen] = useState(false);
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
@@ -71,10 +62,13 @@ const SpaceOverview = ({ space, onBack, onChanged }: SpaceOverviewProps) => {
 
   // Fixed: compare normalized vehicle types instead of exact-casing strings,
   // so real slots no longer show up as "0 car · 0 bike".
-  const carSlots = slots.filter((s) => s.isActive && normalizeVehicleType(s.vehicleType) === "car");
-  const bikeSlots = slots.filter((s) => s.isActive && normalizeVehicleType(s.vehicleType) === "bike");
+  const carSlots = slots.filter(
+    (s) => s.isActive && s.vehicleType.toLowerCase() === VehicleType.Car
+  );
 
-  const statusStyles = getStatusStyles(space.listingStatus);
+  const bikeSlots = slots.filter(
+    (s) => s.isActive && s.vehicleType.toLowerCase() === VehicleType.Bike
+  );
 
   const handleToggleAvailability = async (value: boolean) => {
     setAvailable(value);
@@ -108,9 +102,6 @@ const SpaceOverview = ({ space, onBack, onChanged }: SpaceOverviewProps) => {
         <div className="space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="font-display text-xl font-bold text-foreground">{space.title}</h2>
-            <Badge variant="outline" className={statusStyles.className}>
-              {statusStyles.text}
-            </Badge>
           </div>
           <p className="text-sm text-muted-foreground flex items-center gap-1">
             <MapPin className="w-3.5 h-3.5" />
@@ -223,4 +214,4 @@ const StatCard = ({ icon, label, value }: { icon: React.ReactNode; label: string
   </div>
 );
 
-export default SpaceOverview;
+export default HostDashboardSpaceOverview;
