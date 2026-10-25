@@ -7,6 +7,7 @@ namespace ParkMitra_BE.DTOs.Host
         public Guid Id { get; set; }
         public string Title { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
+        public string State { get; set; } = string.Empty;
         public string City { get; set; } = string.Empty;
         public decimal PricePerHour { get; set; }
         public decimal? PricePerDay { get; set; }
@@ -25,7 +26,6 @@ namespace ParkMitra_BE.DTOs.Host
         public int ActiveNow { get; set; }
         public int UpcomingCount { get; set; }
         public FieldCooldownDto? TitleCooldown { get; set; }
-        public FieldCooldownDto? CityCooldown { get; set; }
         public FieldCooldownDto? AddressCooldown { get; set; }
         public FieldCooldownDto? FeaturesCooldown { get; set; }
         public FieldCooldownDto? PricePerHourCooldown { get; set; }

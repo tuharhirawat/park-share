@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using ParkMitra_BE.DTOs.ParkingSpace;
 using ParkMitra_BE.Services;
+using ParkMitra_BE.Enums;
 
 namespace ParkMitra_BE.Controllers
 {
@@ -34,17 +35,22 @@ namespace ParkMitra_BE.Controllers
             return Ok(result);
         }
 
-        [HttpGet("MySpaces")]
-        public async Task<IActionResult> GetMySpaces()
+        [HttpGet("MySpaceListings")]
+        public async Task<IActionResult> GetMySpaceListings(
+            [FromQuery] HostSpaceListingStatus status,
+            [FromQuery] int page = 1)
         {
             var accessToken = Request.Cookies["access_token"];
-            if (string.IsNullOrEmpty(accessToken)) return Unauthorized();
+            if (string.IsNullOrEmpty(accessToken))
+                return Unauthorized();
 
             var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
-            if (currentUser == null) return Unauthorized();
+            if (currentUser == null)
+                return Unauthorized();
 
-            var spaces = await _parkingSpaceService.GetMySpacesAsync(currentUser.UserId);
-            return Ok(spaces);
+
+            var result = await _parkingSpaceService.GetMySpaceListingsAsync(currentUser.UserId, status, page);
+            return Ok(result);
         }
 
         [HttpPut("{id}/UpdateParkingSpace")]
@@ -63,7 +69,11 @@ namespace ParkMitra_BE.Controllers
         }
 
         [HttpGet("Search")]
-        public async Task<IActionResult> Search()
+        public async Task<IActionResult> Search(
+            [FromQuery] string? search,
+            [FromQuery] Guid? cityId,
+            [FromQuery] string? vehicleType,
+            [FromQuery] int page = 1)
         {
             var accessToken = Request.Cookies["access_token"];
 
@@ -75,7 +85,13 @@ namespace ParkMitra_BE.Controllers
                 currentUserId = currentUser?.UserId;
             }
 
-            var spaces = await _parkingSpaceService.SearchAsync(currentUserId);
+            var spaces = await _parkingSpaceService.SearchAsync(
+                currentUserId,
+                search,
+                cityId,
+                vehicleType,
+                page);
+
             return Ok(spaces);
         }
 
@@ -128,6 +144,57 @@ namespace ParkMitra_BE.Controllers
 
             var slots = await _parkingSpaceService.GetSpaceSlotsBySpaceIdAsync(currentUser.UserId, spaceId);
             return Ok(slots);
+        }
+
+        [HttpGet("MySpaceListingsCount")]
+        public async Task<IActionResult> GetMySpaceListingsCount()
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken))
+                return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (currentUser == null)
+                return Unauthorized();
+
+            var summary = await _parkingSpaceService.GetMySpaceListingsCountAsync(currentUser.UserId);
+            return Ok(summary);
+        }
+
+        [HttpDelete("{id}/CancelListing")]
+        public async Task<IActionResult> CancelListing(Guid id)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken))
+                return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (currentUser == null)
+                return Unauthorized();
+
+            var result = await _parkingSpaceService.CancelListingAsync(currentUser.UserId, id);
+            if (!result.Success)
+                return BadRequest(result);
+
+            return Ok(result);
+        }
+
+        [HttpGet("{id}/ReapplyDetails")]
+        public async Task<IActionResult> GetReapplyDetails(Guid id)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken))
+                return Unauthorized();
+
+            var currentUser = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (currentUser == null)
+                return Unauthorized();
+
+            var result = await _parkingSpaceService.GetReapplyDetailsAsync(currentUser.UserId, id);
+            if (result == null)
+                return NotFound();
+
+            return Ok(result);
         }
     }
 }

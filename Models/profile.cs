@@ -40,4 +40,6 @@ public partial class profile
     public virtual ICollection<parking_space> parking_spaces { get; set; } = new List<parking_space>();
 
     public virtual ICollection<review> reviews { get; set; } = new List<review>();
+
+    public virtual ICollection<user_auth_provider> user_auth_providers { get; set; } = new List<user_auth_provider>();
 }

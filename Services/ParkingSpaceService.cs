@@ -22,6 +22,21 @@ namespace ParkMitra_BE.Services
 
         public async Task<ApiResponseDto> CreateParkingSpaceAsync(Guid userId, CreateParkingSpaceDto dto)
         {
+            var cityExists = await _context.cities
+                .AnyAsync(c =>
+                    c.id == dto.CityId &&
+                    c.is_active &&
+                    c.state.is_active);
+
+            if (!cityExists)
+            {
+                return new ApiResponseDto
+                {
+                    Success = false,
+                    Message = "Selected city is invalid."
+                };
+            }
+
             if (dto.CarSlots == 0 && dto.BikeSlots == 0)
             {
                 return new ApiResponseDto
@@ -40,7 +55,7 @@ namespace ParkMitra_BE.Services
                 user_id = userId,
                 title = dto.Title.Trim(),
                 address = dto.Address.Trim(),
-                city = dto.City.Trim(),
+                city_id = dto.CityId,
                 price_per_hour = dto.PricePerHour,
                 price_per_day = dto.PricePerDay,
                 vehicle_types = vehicleTypes,
@@ -77,61 +92,57 @@ namespace ParkMitra_BE.Services
             };
         }
 
-        public async Task<List<ParkingSpaceDto>> GetMySpacesAsync(Guid userId)
+        public async Task<PagedResultDto<HostSpaceListingDto>> GetMySpaceListingsAsync(
+            Guid userId,
+            HostSpaceListingStatus status,
+            int page)
         {
-            var spaces = await _context.parking_spaces
-                .Where(s => s.user_id == userId)
+            const int pageSize = 10;
+            page = Math.Max(page, 1);
+
+            var query = _context.parking_spaces
+                .AsNoTracking()
+                .Where(s =>
+                    s.user_id == userId &&
+                    s.listing_status == status.ToString());
+
+            var totalCount = await query.CountAsync();
+
+            var items = await query
                 .OrderByDescending(s => s.created_at)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(s => new HostSpaceListingDto
+                {
+                    Id = s.id,
+                    Title = s.title,
+                    Address = s.address,
+                    City = s.city.name,
+                    ListingStatus = s.listing_status,
+                    RejectionReason = s.rejection_reason,
+                    CreatedAt = s.created_at,
+                    ImageUrl = s.image_urls.FirstOrDefault()
+                })
                 .ToListAsync();
 
-            if (spaces.Count == 0)
-                return new List<ParkingSpaceDto>();
-
-            var spaceIds = spaces.Select(s => s.id).ToList();
-
-            var slotCounts = await _context.parking_slots
-                .Where(sl => spaceIds.Contains(sl.space_id))
-                .GroupBy(sl => new { sl.space_id, sl.vehicle_type })
-                .Select(g => new { g.Key.space_id, g.Key.vehicle_type, Count = g.Count() })
-                .ToListAsync();
-
-            return spaces.Select(s => new ParkingSpaceDto
+            return new PagedResultDto<HostSpaceListingDto>
             {
-                Id = s.id,
-                Title = s.title,
-                Address = s.address,
-                City = s.city,
-                PricePerHour = s.price_per_hour,
-                PricePerDay = s.price_per_day,
-                VehicleTypes = s.vehicle_types,
-                Features = s.features,
-                Description = s.description,
-                ImageUrls = s.image_urls,
-                Rating = s.rating,
-                ReviewCount = s.review_count,
-                Lat = s.lat,
-                Lng = s.lng,
-                Timezone = s.timezone,
-                Available = s.available,
-                ListingStatus = s.listing_status,
-                RejectionReason = s.rejection_reason,
-                ReapplyCount = s.reapply_count,
-                CreatedAt = s.created_at,
-                CarSlots = slotCounts.FirstOrDefault(x => x.space_id == s.id && x.vehicle_type == VehicleType.Car)?.Count ?? 0,
-                BikeSlots = slotCounts.FirstOrDefault(x => x.space_id == s.id && x.vehicle_type == VehicleType.Bike)?.Count ?? 0,
-                TitleCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_title_change_at),
-                CityCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_city_change_at),
-                AddressCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_address_change_at),
-                FeaturesCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_feature_change_at),
-                PricePerHourCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_price_per_hour_change_at),
-                PricePerDayCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_price_per_day_change_at),
-            }).ToList();
+                Items = items,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
         }
 
-        public async Task<ApiResponseDto> UpdateParkingSpaceAsync(Guid userId, Guid spaceId, CreateParkingSpaceDto dto)
+        public async Task<ApiResponseDto> UpdateParkingSpaceAsync(
+            Guid userId,
+            Guid spaceId,
+            CreateParkingSpaceDto dto)
         {
             var space = await _context.parking_spaces
-                .FirstOrDefaultAsync(s => s.id == spaceId && s.user_id == userId);
+                .FirstOrDefaultAsync(s =>
+                    s.id == spaceId &&
+                    s.user_id == userId);
 
             if (space == null)
             {
@@ -139,6 +150,39 @@ namespace ParkMitra_BE.Services
                 {
                     Success = false,
                     Message = "Listing not found."
+                };
+            }
+
+            // Keep existing city when reapplying a rejected listing.
+            var cityId = dto.CityId;
+
+            if (space.listing_status == "rejected" &&
+                cityId == Guid.Empty)
+            {
+                cityId = space.city_id;
+            }
+
+            if (space.listing_status == "rejected" &&
+                cityId != space.city_id)
+            {
+                return new ApiResponseDto
+                {
+                    Success = false,
+                    Message = "State and city cannot be changed when reapplying a rejected listing."
+                };
+            }
+
+            var cityExists = await _context.cities.AnyAsync(c =>
+                c.id == cityId &&
+                c.is_active &&
+                c.state.is_active);
+
+            if (!cityExists)
+            {
+                return new ApiResponseDto
+                {
+                    Success = false,
+                    Message = "Selected city is invalid."
                 };
             }
 
@@ -152,11 +196,13 @@ namespace ParkMitra_BE.Services
             }
 
             var timezone = ResolveTimezone(dto.Lat, dto.Lng);
-            var vehicleTypes = BuildVehicleTypes(dto.CarSlots, dto.BikeSlots);
+            var vehicleTypes = BuildVehicleTypes(
+                dto.CarSlots,
+                dto.BikeSlots);
 
             space.title = dto.Title.Trim();
             space.address = dto.Address.Trim();
-            space.city = dto.City.Trim();
+            space.city_id = cityId;
             space.price_per_hour = dto.PricePerHour;
             space.price_per_day = dto.PricePerDay;
             space.vehicle_types = vehicleTypes;
@@ -168,7 +214,7 @@ namespace ParkMitra_BE.Services
             space.timezone = timezone;
             space.updated_at = DateTime.UtcNow;
 
-            // Server-owned: resubmitting for review always resets these, client cannot set them
+            // Server-owned
             space.listing_status = "pending";
             space.reviewed_by = null;
             space.reviewed_at = null;
@@ -176,57 +222,166 @@ namespace ParkMitra_BE.Services
 
             await using var transaction = await _context.Database.BeginTransactionAsync();
 
-            var existingSlots = await _context.parking_slots
-                .Where(s => s.space_id == spaceId)
-                .ToListAsync();
-
-            _context.parking_slots.RemoveRange(existingSlots);
-            await _context.SaveChangesAsync();
-
-            var newSlots = BuildSlots(spaceId, dto.CarSlots, dto.BikeSlots);
-            _context.parking_slots.AddRange(newSlots);
-            await _context.SaveChangesAsync();
-
-            await transaction.CommitAsync();
-
-            return new ApiResponseDto
+            try
             {
-                Success = true,
-                Message = "Listing resubmitted for review."
-            };
+                var existingSlots = await _context.parking_slots
+                    .Where(s => s.space_id == spaceId)
+                    .ToListAsync();
+
+                _context.parking_slots.RemoveRange(existingSlots);
+
+                await _context.SaveChangesAsync();
+
+                var newSlots = BuildSlots(
+                    spaceId,
+                    dto.CarSlots,
+                    dto.BikeSlots);
+
+                _context.parking_slots.AddRange(newSlots);
+
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return new ApiResponseDto
+                {
+                    Success = true,
+                    Message = "Listing resubmitted for review."
+                };
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+
+                return new ApiResponseDto
+                {
+                    Success = false,
+                    Message = "Failed to resubmit listing."
+                };
+            }
         }
 
-        public async Task<List<ParkingSpaceSearchDto>> SearchAsync(Guid? currentUserId)
+        public async Task<PagedResultDto<ParkingSpaceDashboardDto>> SearchAsync(
+            Guid? currentUserId,
+            string? search,
+            Guid? cityId,
+            string? vehicleType,
+            int page)
         {
+            const int pageSize = 10;
+
+            page = Math.Max(page, 1);
+
             var query = _context.parking_spaces
-                .Where(s => s.available && s.listing_status == "approved");
+                .AsNoTracking()
+                .Include(s => s.city)
+                .Where(s =>
+                    s.available &&
+                    s.listing_status == "approved" &&
+                    _context.parking_slots.Any(slot =>
+                        slot.space_id == s.id &&
+                        slot.is_active));
 
             if (currentUserId.HasValue)
             {
                 query = query.Where(s => s.user_id != currentUserId.Value);
             }
 
+            VehicleType? requestedVehicleType = null;
+
+            if (!string.IsNullOrWhiteSpace(vehicleType))
+            {
+                if (Enum.TryParse<VehicleType>(
+                    vehicleType.Trim(),
+                    ignoreCase: true,
+                    out var parsedVehicleType))
+                {
+                    requestedVehicleType = parsedVehicleType;
+                }
+            }
+
+            // Search filter
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var searchTerm = search.Trim();
+
+                query = query.Where(s =>
+                    EF.Functions.ILike(s.title, $"%{searchTerm}%") ||
+                    EF.Functions.ILike(s.city.name, $"%{searchTerm}%") ||
+                    EF.Functions.ILike(s.address, $"%{searchTerm}%"));
+            }
+
+            // City filter
+            if (cityId.HasValue)
+            {
+                query = query.Where(s => s.city_id == cityId.Value);
+            }
+
+            // Vehicle filter - ACTIVE slots only
+            if (requestedVehicleType.HasValue)
+            {
+                query = query.Where(s =>
+                    _context.parking_slots.Any(slot =>
+                        slot.space_id == s.id &&
+                        slot.is_active &&
+                        slot.vehicle_type == requestedVehicleType.Value));
+            }
+
+            var totalCount = await query.CountAsync();
+
             var spaces = await query
                 .OrderByDescending(s => s.created_at)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .ToListAsync();
 
             if (spaces.Count == 0)
-                return new List<ParkingSpaceSearchDto>();
+            {
+                return new PagedResultDto<ParkingSpaceDashboardDto>
+                {
+                    Items = new List<ParkingSpaceDashboardDto>(),
+                    TotalCount = totalCount,
+                    Page = page,
+                    PageSize = pageSize
+                };
+            }
 
-            var spaceIds = spaces.Select(s => s.id).ToList();
+            var spaceIds = spaces
+                .Select(s => s.id)
+                .ToList();
 
+            // Get ONLY active vehicle types for returned spaces
+            var activeVehicleTypesBySpace = await _context.parking_slots
+                .AsNoTracking()
+                .Where(slot =>
+                    spaceIds.Contains(slot.space_id) &&
+                    slot.is_active)
+                .GroupBy(slot => slot.space_id)
+                .ToDictionaryAsync(
+                    g => g.Key,
+                    g => g
+                        .Select(slot => slot.vehicle_type)
+                        .Distinct()
+                        .ToList());
+
+            // Existing title update logic
             var titleUpdates = await _context.parking_space_update_requests
-                .Where(u => u.field == "title"
-                    && spaceIds.Contains(u.space_id)
-                    && (u.status == "APPROVED" || u.status == "PENDING"))
+                .AsNoTracking()
+                .Where(u =>
+                    u.field == "title" &&
+                    spaceIds.Contains(u.space_id) &&
+                    (u.status == "APPROVED" ||
+                     u.status == "PENDING"))
                 .OrderByDescending(u => u.created_at)
                 .ToListAsync();
 
             var latestTitleBySpace = titleUpdates
                 .GroupBy(u => u.space_id)
-                .ToDictionary(g => g.Key, g => g.First());
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.First());
 
-            return spaces.Select(s =>
+            var items = spaces.Select(s =>
             {
                 var displayTitle = s.title;
 
@@ -238,30 +393,43 @@ namespace ParkMitra_BE.Services
                     displayTitle = $"{update.new_value} (earlier {update.old_value})";
                 }
 
-                return new ParkingSpaceSearchDto
+                return new ParkingSpaceDashboardDto
                 {
                     Id = s.id,
                     Title = displayTitle,
                     Address = s.address,
-                    City = s.city,
+                    City = s.city.name,
                     PricePerHour = s.price_per_hour,
-                    PricePerDay = s.price_per_day,
-                    VehicleTypes = s.vehicle_types,
-                    Features = s.features,
+                    VehicleTypes =
+                        activeVehicleTypesBySpace.TryGetValue(
+                            s.id,
+                            out var activeVehicleTypes)
+                            ? activeVehicleTypes
+                                .Select(v => v.ToString().ToLower())
+                                .ToList()
+                            : new List<string>(),
                     Rating = s.rating,
                     ReviewCount = s.review_count,
-                    ImageUrls = s.image_urls,
+                    ImageUrl = s.image_urls.FirstOrDefault(),
                     Lat = s.lat,
                     Lng = s.lng,
-                    Available = s.available,
-                    Timezone =s.timezone
+                    HasCctv = s.features.Contains("CCTV")
                 };
             }).ToList();
+
+            return new PagedResultDto<ParkingSpaceDashboardDto>
+            {
+                Items = items,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
         }
 
         public async Task<ParkingSpaceSearchDto?> GetSpaceByIdAsync(Guid id, Guid? currentUserId)
         {
             var space = await _context.parking_spaces
+                .Include(s => s.city)
                 .FirstOrDefaultAsync(s => s.id == id && s.available && s.listing_status == "approved");
 
             if (space == null) return null;
@@ -290,7 +458,7 @@ namespace ParkMitra_BE.Services
                 Id = space.id,
                 Title = displayTitle,
                 Address = space.address,
-                City = space.city,
+                City = space.city.name,
                 PricePerHour = space.price_per_hour,
                 PricePerDay = space.price_per_day,
                 VehicleTypes = space.vehicle_types,
@@ -323,6 +491,7 @@ namespace ParkMitra_BE.Services
         public async Task<UpdateSpaceDetailsResultDto> UpdateSpaceDetailsAsync(Guid userId, Guid spaceId, UpdateSpaceDetailsRequestDto dto)
         {
             var space = await _context.parking_spaces
+                .Include(s => s.city).ThenInclude(c => c.state)
                 .FirstOrDefaultAsync(s => s.id == spaceId && s.user_id == userId);
 
             if (space == null)
@@ -332,7 +501,6 @@ namespace ParkMitra_BE.Services
             var errors = new Dictionary<string, string>();
 
             var titleChanged = dto.Title.Trim() != space.title;
-            var cityChanged = dto.City.Trim() != space.city;
             var addressChanged = dto.Address.Trim() != space.address;
             var featuresChanged = !FeaturesEqual(dto.Features, space.features);
             var pricePerHourChanged = dto.PricePerHour != space.price_per_hour;
@@ -341,11 +509,6 @@ namespace ParkMitra_BE.Services
             if (titleChanged && ParkingSpaceCooldownHelper.IsCooldownActive(space.last_title_change_at))
             {
                 errors["title"] = $"Can be changed after {ParkingSpaceCooldownHelper.GetRemainingDays(space.last_title_change_at)} days";
-            }
-
-            if (cityChanged && ParkingSpaceCooldownHelper.IsCooldownActive(space.last_city_change_at))
-            {
-                errors["city"] = $"Can be changed after {ParkingSpaceCooldownHelper.GetRemainingDays(space.last_city_change_at)} days";
             }
 
             if (addressChanged && ParkingSpaceCooldownHelper.IsCooldownActive(space.last_address_change_at))
@@ -385,13 +548,6 @@ namespace ParkMitra_BE.Services
                 requests.Add(NewUpdateRequest(spaceId, "title", space.title, dto.Title.Trim()));
                 space.title = dto.Title.Trim();
                 space.last_title_change_at = now;
-            }
-
-            if (cityChanged)
-            {
-                requests.Add(NewUpdateRequest(spaceId, "city", space.city, dto.City.Trim()));
-                space.city = dto.City.Trim();
-                space.last_city_change_at = now;
             }
 
             if (addressChanged)
@@ -451,6 +607,146 @@ namespace ParkMitra_BE.Services
             return slots.Select(HostMapper.MapSlot).ToList();
         }
 
+        public async Task<HostSpaceListingsCountDto> GetMySpaceListingsCountAsync(Guid userId)
+        {
+            var counts = await _context.parking_spaces
+                .Where(s => s.user_id == userId)
+                .GroupBy(s => 1)
+                .Select(g => new HostSpaceListingsCountDto
+                {
+                    Total = g.Count(),
+                    Pending = g.Count(s => s.listing_status == "pending"),
+                    Approved = g.Count(s => s.listing_status == "approved"),
+                    Rejected = g.Count(s => s.listing_status == "rejected")
+                })
+                .FirstOrDefaultAsync();
+
+            return counts ?? new HostSpaceListingsCountDto();
+        }
+
+        public async Task<ApiResponseDto> CancelListingAsync(
+            Guid userId,
+            Guid spaceId)
+        {
+            var space = await _context.parking_spaces
+                .FirstOrDefaultAsync(s =>
+                    s.id == spaceId &&
+                    s.user_id == userId);
+
+            if (space == null)
+            {
+                return new ApiResponseDto
+                {
+                    Success = false,
+                    Message = "Parking listing not found."
+                };
+            }
+
+            // Only pending listings can be permanently deleted.
+            if (space.listing_status != "pending")
+            {
+                return new ApiResponseDto
+                {
+                    Success = false,
+                    Message = "Only pending listings can be cancelled."
+                };
+            }
+
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                // Delete parking slots belonging to this listing.
+                var slots = await _context.parking_slots
+                    .Where(s => s.space_id == spaceId)
+                    .ToListAsync();
+
+                _context.parking_slots.RemoveRange(slots);
+
+                // Delete any update requests belonging to this listing.
+                var updateRequests = await _context.parking_space_update_requests
+                    .Where(r => r.space_id == spaceId)
+                    .ToListAsync();
+
+                _context.parking_space_update_requests.RemoveRange(updateRequests);
+
+                // Delete the parking space itself.
+                _context.parking_spaces.Remove(space);
+
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return new ApiResponseDto
+                {
+                    Success = true,
+                    Message = "Parking listing cancelled successfully."
+                };
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+
+                return new ApiResponseDto
+                {
+                    Success = false,
+                    Message = "Failed to cancel parking listing."
+                };
+            }
+        }
+
+        public async Task<ReapplyParkingSpaceDto?> GetReapplyDetailsAsync(
+            Guid userId,
+            Guid spaceId)
+        {
+            var space = await _context.parking_spaces
+                .Include(s => s.city)
+                .ThenInclude(c => c.state)
+                .FirstOrDefaultAsync(s =>
+                    s.id == spaceId &&
+                    s.user_id == userId &&
+                    s.listing_status == "rejected");
+
+            if (space == null)
+                return null;
+
+            var slotCounts = await _context.parking_slots
+                .Where(s => s.space_id == spaceId)
+                .GroupBy(s => s.vehicle_type)
+                .Select(g => new
+                {
+                    VehicleType = g.Key,
+                    Count = g.Count()
+                })
+                .ToListAsync();
+
+            var carSlots = slotCounts
+                .FirstOrDefault(x => x.VehicleType == VehicleType.car)
+                ?.Count ?? 0;
+
+            var bikeSlots = slotCounts
+                .FirstOrDefault(x => x.VehicleType == VehicleType.bike)
+                ?.Count ?? 0;
+
+            return new ReapplyParkingSpaceDto
+            {
+                Id = space.id,
+                Title = space.title,
+                Address = space.address,
+                StateName = space.city.state.name,
+                CityName = space.city.name,
+                PricePerHour = space.price_per_hour,
+                PricePerDay = space.price_per_day,
+                CarSlots = carSlots,
+                BikeSlots = bikeSlots,
+                Features = space.features ?? new List<string>(),
+                Description = space.description,
+                ImageUrls = space.image_urls ?? new List<string>(),
+                Lat = space.lat,
+                Lng = space.lng
+            };
+        }
+
         // Helper methods
 
         private static string ResolveTimezone(double lat, double lng)
@@ -484,7 +780,7 @@ namespace ParkMitra_BE.Services
                     id = Guid.NewGuid(),
                     space_id = spaceId,
                     label = $"C-{i}",
-                    vehicle_type = VehicleType.Car,
+                    vehicle_type = VehicleType.car,
                     is_active = true,
                     created_at = DateTime.UtcNow,
                     updated_at = DateTime.UtcNow
@@ -498,7 +794,7 @@ namespace ParkMitra_BE.Services
                     id = Guid.NewGuid(),
                     space_id = spaceId,
                     label = $"B-{i}",
-                    vehicle_type = VehicleType.Bike,
+                    vehicle_type = VehicleType.bike,
                     is_active = true,
                     created_at = DateTime.UtcNow,
                     updated_at = DateTime.UtcNow

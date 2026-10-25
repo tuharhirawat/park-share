@@ -1,4 +1,6 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System;
+using System.Collections.Generic;
+using Microsoft.EntityFrameworkCore;
 using ParkMitra_BE.Enums;
 using ParkMitra_BE.Models;
 
@@ -49,24 +51,29 @@ public partial class ApplicationDbContext : DbContext
 
     public virtual DbSet<host_space_review_summary> host_space_review_summaries { get; set; }
 
+    public virtual DbSet<city> cities { get; set; }
+
+    public virtual DbSet<state> states { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder
             .HasPostgresEnum("auth", "aal_level", new[] { "aal1", "aal2", "aal3" })
             .HasPostgresEnum("auth", "code_challenge_method", new[] { "s256", "plain" })
             .HasPostgresEnum("auth", "factor_status", new[] { "unverified", "verified" })
-            .HasPostgresEnum("auth", "factor_type", new[] { "totp", "webauthn", "phone" })
+            .HasPostgresEnum("auth", "factor_type", new[] { "totp", "webauthn", "phone", "recovery_code" })
             .HasPostgresEnum("auth", "oauth_authorization_status", new[] { "pending", "approved", "denied", "expired" })
             .HasPostgresEnum("auth", "oauth_client_type", new[] { "public", "confidential" })
             .HasPostgresEnum("auth", "oauth_registration_type", new[] { "dynamic", "manual" })
             .HasPostgresEnum("auth", "oauth_response_type", new[] { "code" })
             .HasPostgresEnum("auth", "one_time_token_type", new[] { "confirmation_token", "reauthentication_token", "recovery_token", "email_change_token_new", "email_change_token_current", "phone_change_token" })
             .HasPostgresEnum("realtime", "action", new[] { "INSERT", "UPDATE", "DELETE", "TRUNCATE", "ERROR" })
-            .HasPostgresEnum("realtime", "equality_op", new[] { "eq", "neq", "lt", "lte", "gt", "gte", "in" })
+            .HasPostgresEnum("realtime", "equality_op", new[] { "eq", "neq", "lt", "lte", "gt", "gte", "in", "like", "ilike", "is", "match", "imatch", "isdistinct" })
             .HasPostgresEnum("storage", "buckettype", new[] { "STANDARD", "ANALYTICS", "VECTOR" })
             .HasPostgresExtension("extensions", "pg_stat_statements")
             .HasPostgresExtension("extensions", "pgcrypto")
             .HasPostgresExtension("extensions", "uuid-ossp")
+            .HasPostgresExtension("pg_catalog", "pg_cron")
             .HasPostgresExtension("btree_gist")
             .HasPostgresExtension("vault", "supabase_vault");
 
@@ -78,12 +85,24 @@ public partial class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<user_auth_provider>(entity =>
         {
-            entity.HasKey(e => e.id);
-
+            entity.HasKey(e => e.id).HasName("pk_user_auth_providers");
+            entity.HasIndex(e => e.user_id, "idx_user_auth_providers_user");
+            entity.HasIndex(e => new { e.provider, e.provider_user_id }, "uq_user_auth_provider").IsUnique();
+            entity.Property(e => e.id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.created_at).HasDefaultValueSql("now()");
+            entity.Property(e => e.provider).HasMaxLength(50);
+            entity.Property(e => e.provider_user_id).HasMaxLength(255);
+            entity.Property(e => e.updated_at).HasDefaultValueSql("now()");
+            
             entity.Property(e => e.provider)
                   .HasConversion(
                       v => v.ToString(),
                       v => Enum.Parse<AuthProvider>(v));
+
+            entity.HasOne(d => d.user).WithMany(p => p.user_auth_providers)
+                .HasPrincipalKey(p => p.user_id)
+                .HasForeignKey(d => d.user_id)
+                .HasConstraintName("fk_user_auth_providers_profiles");
         });
 
         modelBuilder.Entity<booking>(entity =>
@@ -93,6 +112,8 @@ public partial class ApplicationDbContext : DbContext
             entity.HasIndex(e => new { e.original_start_time, e.original_end_time }, "idx_bookings_original_time");
 
             entity.HasIndex(e => e.space_id, "idx_bookings_space_id");
+
+            entity.HasIndex(e => e.status, "idx_bookings_status");
 
             entity.Property(e => e.id).HasDefaultValueSql("gen_random_uuid()");
             entity.Property(e => e.created_at).HasDefaultValueSql("now()");
@@ -232,8 +253,14 @@ public partial class ApplicationDbContext : DbContext
             entity.Property(e => e.listing_status).HasDefaultValueSql("'pending'::text");
             entity.Property(e => e.reapply_count).HasDefaultValue(0);
             entity.Property(e => e.review_count).HasDefaultValue(0);
+            entity.Property(e => e.timezone).HasDefaultValueSql("'Asia/Kolkata'::text");
             entity.Property(e => e.updated_at).HasDefaultValueSql("now()");
             entity.Property(e => e.vehicle_types).HasDefaultValueSql("'{}'::text[]");
+
+            entity.HasOne(d => d.city).WithMany(p => p.parking_spaces)
+                .HasForeignKey(d => d.city_id)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_parking_spaces_city");
 
             entity.HasOne(d => d.user).WithMany(p => p.parking_spaces)
                 .HasPrincipalKey(p => p.user_id)
@@ -265,6 +292,8 @@ public partial class ApplicationDbContext : DbContext
 
             entity.HasIndex(e => e.user_id, "idx_payment_user");
 
+            entity.HasIndex(e => new { e.status, e.created_at }, "idx_payments_status_created_at");
+
             entity.Property(e => e.id).HasDefaultValueSql("gen_random_uuid()");
             entity.Property(e => e.base_price).HasPrecision(10, 2);
             entity.Property(e => e.created_at).HasDefaultValueSql("now()");
@@ -286,7 +315,7 @@ public partial class ApplicationDbContext : DbContext
             entity.Property(e => e.status).HasConversion(
                 v => v.ToString().ToLower(),
                 v => Enum.Parse<PaymentStatus>(v, true));
-            });
+        });
 
         modelBuilder.Entity<profile>(entity =>
         {
@@ -322,6 +351,8 @@ public partial class ApplicationDbContext : DbContext
 
             entity.HasIndex(e => e.booking_id, "reviews_booking_unique").IsUnique();
 
+            entity.HasIndex(e => new { e.space_id, e.user_id }, "reviews_space_user_unique").IsUnique();
+
             entity.Property(e => e.id).HasDefaultValueSql("gen_random_uuid()");
             entity.Property(e => e.created_at).HasDefaultValueSql("now()");
             entity.Property(e => e.updated_at).HasDefaultValueSql("now()");
@@ -344,7 +375,7 @@ public partial class ApplicationDbContext : DbContext
         modelBuilder.Entity<user_role>(entity =>
         {
             entity.HasKey(e => e.id).HasName("user_roles_pkey");
-
+            entity.HasIndex(e => new { e.user_id, e.role }, "user_roles_user_id_role_key").IsUnique();
             entity.Property(e => e.id).HasDefaultValueSql("gen_random_uuid()");
             entity.Property(e => e.created_at).HasDefaultValueSql("now()");
             entity.Property(e => e.role).HasConversion(
@@ -390,6 +421,48 @@ public partial class ApplicationDbContext : DbContext
         {
             entity.HasNoKey();
             entity.ToView("space_reviewers_summary");
+            entity.Property(e => e.avg_rating).HasPrecision(2, 1);
+        });
+
+        modelBuilder.Entity<city>(entity =>
+        {
+            entity.HasKey(e => e.id).HasName("cities_pkey");
+            entity.HasIndex(e => e.aliases, "idx_cities_aliases").HasMethod("gin");
+            entity.HasIndex(e => e.is_active, "idx_cities_is_active");
+            entity.HasIndex(e => e.name, "idx_cities_name");
+            entity.HasIndex(e => e.state_id, "idx_cities_state_id");
+            entity.HasIndex(e => new { e.state_id, e.name }, "uq_cities_state_name").IsUnique();
+            entity.Property(e => e.id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.aliases).HasDefaultValueSql("'{}'::text[]");
+            entity.Property(e => e.created_at).HasDefaultValueSql("now()");
+            entity.Property(e => e.is_active).HasDefaultValue(true);
+            entity.Property(e => e.latitude).HasPrecision(10, 8);
+            entity.Property(e => e.longitude).HasPrecision(11, 8);
+            entity.Property(e => e.name).HasMaxLength(150);
+            entity.Property(e => e.source).HasMaxLength(100);
+            entity.Property(e => e.source_reference_code).HasMaxLength(100);
+            entity.Property(e => e.updated_at).HasDefaultValueSql("now()");
+
+            entity.HasOne(d => d.state).WithMany(p => p.cities)
+                .HasForeignKey(d => d.state_id)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_cities_state");
+        });
+
+        modelBuilder.Entity<state>(entity =>
+        {
+            entity.HasKey(e => e.id).HasName("states_pkey");
+            entity.HasIndex(e => e.is_active, "idx_states_is_active");
+            entity.HasIndex(e => e.name, "uq_states_name").IsUnique();
+
+            entity.Property(e => e.id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.code).HasMaxLength(20);
+            entity.Property(e => e.created_at).HasDefaultValueSql("now()");
+            entity.Property(e => e.is_active).HasDefaultValue(true);
+            entity.Property(e => e.name).HasMaxLength(150);
+            entity.Property(e => e.source).HasMaxLength(100);
+            entity.Property(e => e.source_reference_code).HasMaxLength(100);
+            entity.Property(e => e.updated_at).HasDefaultValueSql("now()");
         });
 
         OnModelCreatingPartial(modelBuilder);

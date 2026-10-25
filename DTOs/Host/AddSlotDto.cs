@@ -5,7 +5,7 @@ namespace ParkMitra_BE.DTOs.Host
     public class AddSlotRequestDto
     {
         public Guid SpaceId { get; set; }
-        public VehicleType VehicleType { get; set; } = VehicleType.Car;
+        public VehicleType VehicleType { get; set; } = VehicleType.car;
     }
 
     public class AddSlotResultDto

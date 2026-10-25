@@ -17,4 +17,6 @@ public partial class user_auth_provider
     public DateTime created_at { get; set; }
 
     public DateTime updated_at { get; set; }
+
+    public virtual profile user { get; set; } = null!;
 }

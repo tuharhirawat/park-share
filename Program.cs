@@ -44,6 +44,7 @@ public class Program
         builder.Services.AddScoped<ReviewService>();
         builder.Services.AddScoped<PaymentService>();
         builder.Services.AddScoped<PricingService>();
+        builder.Services.AddScoped<LocationService>();
 
         builder.Services.AddMemoryCache();
         builder.Services.AddSingleton<ICodeVerifierStore, MemoryCodeVerifierStore>();

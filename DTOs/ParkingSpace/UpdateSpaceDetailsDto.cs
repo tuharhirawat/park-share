@@ -6,7 +6,7 @@ namespace ParkMitra_BE.DTOs.ParkingSpace
     {
         public string Title { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
-        public string City { get; set; } = string.Empty;
+        public Guid CityId { get; set; }
         public double? Lat { get; set; }
         public double? Lng { get; set; }
         public decimal PricePerHour { get; set; }

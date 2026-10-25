@@ -88,7 +88,9 @@ namespace ParkMitra_BE.Services
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 50);
 
-            var spacesQuery = _context.parking_spaces.Where(s => s.user_id == userId && s.listing_status == "approved");
+            var spacesQuery = _context.parking_spaces
+                .Include(s => s.city).ThenInclude(c => c.state)
+                .Where(s => s.user_id == userId && s.listing_status == "approved");
 
             var totalSpaces = await spacesQuery.CountAsync();
 
@@ -174,7 +176,6 @@ namespace ParkMitra_BE.Services
                 var dto = HostMapper.MapSpace(s, statsBySpace[s.id]);
 
                 dto.TitleCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_title_change_at);
-                dto.CityCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_city_change_at);
                 dto.AddressCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_address_change_at);
                 dto.FeaturesCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_feature_change_at);
                 dto.PricePerHourCooldown = ParkingSpaceCooldownHelper.GetCooldown(s.last_price_per_hour_change_at);
@@ -222,7 +223,7 @@ namespace ParkMitra_BE.Services
                 .DefaultIfEmpty(0)
                 .Max() + 1;
 
-            var prefix = dto.VehicleType == VehicleType.Car ? "C" : "B";
+            var prefix = dto.VehicleType == VehicleType.car ? "C" : "B";
             var newLabel = $"{prefix}-{nextNumber}";
 
             var slot = new parking_slot

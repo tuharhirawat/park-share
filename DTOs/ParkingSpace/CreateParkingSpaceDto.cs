@@ -10,8 +10,8 @@ namespace ParkMitra_BE.DTOs.ParkingSpace
         [Required, StringLength(200, MinimumLength = 5)]
         public string Address { get; set; } = string.Empty;
 
-        [Required, StringLength(50, MinimumLength = 2)]
-        public string City { get; set; } = string.Empty;
+        [Required]
+        public Guid CityId { get; set; }
 
         [Required, Range(0.01, 10000)]
         public decimal PricePerHour { get; set; }

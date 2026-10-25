@@ -13,7 +13,7 @@ public partial class parking_space
 
     public string address { get; set; } = null!;
 
-    public string city { get; set; } = null!;
+    public Guid city_id { get; set; }
 
     public decimal price_per_hour { get; set; }
 
@@ -66,6 +66,8 @@ public partial class parking_space
     public int reapply_count { get; set; }
 
     public virtual ICollection<booking> bookings { get; set; } = new List<booking>();
+
+    public virtual city city { get; set; } = null!;
 
     public virtual ICollection<parking_slot> parking_slots { get; set; } = new List<parking_slot>();
 

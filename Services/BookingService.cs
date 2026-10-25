@@ -65,9 +65,20 @@ namespace ParkMitra_BE.Services
 
         public async Task<CreateBookingResultDto> CreateBookingAsync(Guid userId, CreateBookingRequestDto dto)
         {
-            var space = await _context.parking_spaces.FirstOrDefaultAsync(s => s.id == dto.SpaceId);
+            var space = await _context.parking_spaces
+                .Include(s => s.city)
+                .FirstOrDefaultAsync(s => s.id == dto.SpaceId);
 
-            var today = IsTodayInTimezone(dto.BookingDate, space.timezone);
+            if (space == null || !space.available || space.listing_status != "approved")
+            {
+                return new CreateBookingResultDto
+                {
+                    Success = false,
+                    Message = "This space is not available for booking."
+                };
+            }
+
+            var today = IsTodayInTimezone(dto.BookingDate, space.timezone); 
 
             if (space == null || !space.available || space.listing_status != "approved")
             {
@@ -125,7 +136,7 @@ namespace ParkMitra_BE.Services
                 space_id = space.id,
                 space_title = space.title,
                 space_address = space.address,
-                space_city = space.city,
+                space_city = space.city.name,
                 total_price = pricing.TotalPayable,
                 status = BookingStatus.Pending,
                 created_at = DateTime.UtcNow,
