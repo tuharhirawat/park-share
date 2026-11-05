@@ -140,5 +140,21 @@ namespace ParkMitra_BE.Controllers
                 Message = "Logged out successfully"
             });
         }
+
+        [HttpPost("ConfirmAdult")]
+        public async Task<IActionResult> ConfirmAdult([FromBody] ConfirmAdultRequestDto request)
+        {
+            var accessToken = Request.Cookies["access_token"];
+            if (string.IsNullOrEmpty(accessToken)) return Unauthorized();
+
+            var user = await _currentUserService.GetCurrentUserAsync(accessToken);
+            if (user == null) return Unauthorized();
+
+            if (!request.Confirmed)
+                return BadRequest(new ApiResponseDto { Success = false, Message = "You must confirm that you are 18 or older." });
+
+            await _authService.SetAdultAsync(user.UserId);
+            return Ok(new ApiResponseDto { Success = true });
+        }
     }
 }

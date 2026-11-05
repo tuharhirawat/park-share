@@ -330,6 +330,7 @@ public partial class ApplicationDbContext : DbContext
             entity.Property(e => e.current_status).HasDefaultValueSql("'ACTIVE'::text");
             entity.Property(e => e.full_name).HasDefaultValueSql("''::text");
             entity.Property(e => e.is_host).HasDefaultValue(false);
+            entity.Property(e => e.is_adult).HasDefaultValue(false);
             entity.Property(e => e.is_phone_verified).HasDefaultValue(false);
             entity.Property(e => e.status_updated_on).HasDefaultValueSql("now()");
             entity.Property(e => e.updated_at).HasDefaultValueSql("now()");

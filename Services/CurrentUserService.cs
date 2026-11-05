@@ -41,9 +41,15 @@ namespace ParkMitra_BE.Services
 
             string fullName = string.Empty;
             string? mobileNumber = null;
+            bool isAdultFromSignup = false;
 
             if (authenticatedUser.TryGetProperty("user_metadata", out var metadata))
             {
+                if (metadata.TryGetProperty("is_adult", out var adultElement) && adultElement.ValueKind == JsonValueKind.True)
+                {
+                    isAdultFromSignup = true;
+                }
+
                 if (metadata.TryGetProperty("full_name", out var fullNameElement))
                 {
                     fullName = fullNameElement.GetString() ?? string.Empty;
@@ -88,10 +94,11 @@ namespace ParkMitra_BE.Services
             if (profile == null)
             {
                 var initialized = await _userInitializationService.InitializeNewUserAsync(
-                    userId,
-                    fullName,
-                    mobileNumber,
-                    authEmail
+                    userId, 
+                    fullName, 
+                    mobileNumber, 
+                    authEmail, 
+                    isAdultFromSignup
                 );
 
                 if (!initialized)
@@ -125,6 +132,7 @@ namespace ParkMitra_BE.Services
                 Email = profile.email ?? "",
                 MobileNumber = profile.mobile_number,
                 IsHost = profile.is_host,
+                IsAdult = profile.is_adult,
                 CurrentStatus = profile.current_status,
                 HasGoogleProvider = hasGoogleProvider,
                 HasEmailProvider = hasEmailProvider,

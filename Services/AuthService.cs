@@ -30,6 +30,15 @@ namespace ParkMitra_BE.Services
 
         public async Task<SignupResponseDto> SignupAsync(SignupRequestDto request)
         {
+            if (!request.IsAdult)
+            {
+                return new SignupResponseDto
+                {
+                    Success = false,
+                    Message = "You must confirm that you are 18 or older."
+                };
+            }
+
             var normalizedEmail = request.Email.Trim().ToLowerInvariant();
 
             var normalizedMobile = request.MobileNumber.Trim();
@@ -57,7 +66,8 @@ namespace ParkMitra_BE.Services
                 data = new
                 {
                     full_name = normalizedFullName,
-                    mobile_number = normalizedMobile
+                    mobile_number = normalizedMobile,
+                    is_adult = true
                 }
             };
 
@@ -151,6 +161,16 @@ namespace ParkMitra_BE.Services
                 RefreshToken = refreshToken,
                 ExpiresIn = expiresIn,
             };
+        }
+
+        public async Task SetAdultAsync(Guid userId)
+        {
+            var p = await _context.profiles.FirstOrDefaultAsync(x => x.user_id == userId);
+            if (p == null) return;
+
+            p.is_adult = true;
+            p.updated_at = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
         }
     }
 }

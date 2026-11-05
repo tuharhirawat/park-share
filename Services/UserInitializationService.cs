@@ -28,7 +28,8 @@ namespace ParkMitra_BE.Services
             Guid userId,
             string fullName,
             string? mobileNumber,
-            string email)
+            string email,
+            bool isAdult = false)
         {
             await using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -57,6 +58,7 @@ namespace ParkMitra_BE.Services
                         full_name = fullName ?? string.Empty,
                         mobile_number = mobileNumber,
                         email = email,
+                        is_adult = isAdult,
                         current_status = "ACTIVE",
                         status_updated_on = utcNow,
                         created_at = utcNow,

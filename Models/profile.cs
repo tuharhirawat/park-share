@@ -15,6 +15,8 @@ public partial class profile
 
     public bool is_host { get; set; }
 
+    public bool is_adult { get; set; }
+
     public bool is_phone_verified { get; set; }
 
     public DateTime? phone_verified_at { get; set; }
