@@ -7,6 +7,7 @@ interface AuthUser {
   email: string;
   mobileNumber: string;
   isHost: boolean;
+  isAdult: boolean
   currentStatus: string;
   hasGoogleProvider: boolean;
   hasEmailProvider: boolean;
@@ -46,6 +47,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const initialize = async () => {
       try {
         await refreshUser();
+      } catch {
+        setUser(null);
       }
       finally {
         setLoading(false);

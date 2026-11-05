@@ -45,6 +45,9 @@ const signupSchema = z
     acceptTerms: z.literal(true, {
       errorMap: () => ({ message: "You must accept the terms & conditions" }),
     }),
+    confirmAge: z.literal(true, {
+      errorMap: () => ({ message: "Please confirm that you are 18 or older" }),
+    }),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
@@ -77,6 +80,7 @@ const TermsContent = () => (
     <p>As a user of Park Mitra:</p>
     <ul>
       <li>You agree to use parking spaces responsibly.</li>
+      <li>You must be at least 18 years old to use Park Mitra.</li>
       <li>You will vacate the space by the end of your booking period.</li>
       <li>Any damage to the parking space is your responsibility.</li>
       <li>Disputes should be reported within 24 hours of the booking.</li>
@@ -92,7 +96,7 @@ const SignupPage = () => {
 
   const form = useForm<SignupForm>({
     resolver: zodResolver(signupSchema),
-    defaultValues: { name: "", email: "", mobile: "", password: "", confirmPassword: "", acceptTerms: undefined as any },
+    defaultValues: { name: "", email: "", mobile: "", password: "", confirmPassword: "", acceptTerms: undefined as any, confirmAge: undefined as any },
   });
 
   const onSubmit = async (values: SignupForm) => {
@@ -108,6 +112,7 @@ const SignupPage = () => {
         email: normalizedEmail,
         mobileNumber: values.mobile,
         password: values.password,
+        isAdult: values.confirmAge,
       });
 
       toast.success(response.data.message || "Account created! Check your email to verify.");
@@ -124,6 +129,8 @@ const SignupPage = () => {
   if (!hasEmailAuth()) {
     return <Navigate to={getLoginRoute()} replace />;
   }
+
+  const confirmAge = form.watch("confirmAge");
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4">
@@ -183,6 +190,17 @@ const SignupPage = () => {
                       <FormMessage />
                     </FormItem>
                   )} />
+                  <FormField control={form.control} name="confirmAge" render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                      <FormControl>
+                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel className="text-sm font-normal">I confirm that I am 18 years or older</FormLabel>
+                        <FormMessage />
+                      </div>
+                    </FormItem>
+                  )} />
                   <FormField control={form.control} name="acceptTerms" render={({ field }) => (
                     <FormItem className="flex flex-row items-start space-x-3 space-y-0">
                       <FormControl>
@@ -211,7 +229,7 @@ const SignupPage = () => {
             <CardFooter className="flex flex-col gap-4">
 
               {hasEmailAuth() && (
-                <Button type="submit" className="w-full" disabled={loading}>
+                <Button type="submit" className="w-full" disabled={loading || !confirmAge}>
                   {loading ? "Creating account..." : "Sign Up"}
                 </Button>
               )}

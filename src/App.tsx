@@ -25,6 +25,8 @@ import Terms from "@/pages/Terms.tsx";
 import Privacy from "@/pages/Privacy.jsx";
 import HostSpaceListingsDashboard from "@/pages/HostSpaceListingsDashboard.tsx"
 import AuthCallback from "./components/AuthCallback.tsx";
+import AgeGate from "@/components/AgeGate.tsx";
+import ConfirmAgePage from "./pages/ConfirmAgePage.tsx";
 
 const queryClient = new QueryClient();
 validateAuthConfig();
@@ -37,82 +39,92 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <AuthProvider>
-            <Routes>
-              <Route element={<MainLayout />}>
-                <Route path="/" element={<Index />} />
-                <Route path="/search" element={<SpaceSearchDashboard />} />
-                <Route path="/space/:id" element={<SpaceDetail />} />
-                <Route path="/auth/callback" element={<AuthCallback />} />
-                <Route
-                  path="/host/host-listing"
-                  element={
-                    <ProtectedRoute>
-                      <HostSpaceListingsDashboard />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/my-bookings"
-                  element={
-                    <ProtectedRoute>
-                      <MyBookingsPage />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/host/dashboard"
-                  element={
-                    <ProtectedRoute>
-                      <HostDashboard />
-                    </ProtectedRoute>
-                  }
-                />
-                {hasEmailAuth() && (
+            <AgeGate>
+              <Routes>
+                <Route element={<MainLayout />}>
+                  <Route path="/" element={<Index />} />
+                  <Route path="/search" element={<SpaceSearchDashboard />} />
+                  <Route path="/space/:id" element={<SpaceDetail />} />
+                  <Route path="/auth/callback" element={<AuthCallback />} />
                   <Route
-                    path="/profile"
+                    path="/host/host-listing"
                     element={
                       <ProtectedRoute>
-                        <ProfilePage />
+                        <HostSpaceListingsDashboard />
                       </ProtectedRoute>
                     }
                   />
-                )}
-                <Route
-                  path="/vehicles"
-                  element={
-                    <ProtectedRoute>
-                      <VehiclesPage />
-                    </ProtectedRoute>
-                  }
-                />
-                {hasEmailAuth() && (
-                  <>
+                  <Route
+                    path="/my-bookings"
+                    element={
+                      <ProtectedRoute>
+                        <MyBookingsPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/host/dashboard"
+                    element={
+                      <ProtectedRoute>
+                        <HostDashboard />
+                      </ProtectedRoute>
+                    }
+                  />
+                  {hasEmailAuth() && (
                     <Route
-                      path="/login"
+                      path="/profile"
                       element={
-                        <PublicRoute>
-                          <LoginPage />
-                        </PublicRoute>
+                        <ProtectedRoute>
+                          <ProfilePage />
+                        </ProtectedRoute>
                       }
                     />
+                  )}
+                  <Route
+                    path="/vehicles"
+                    element={
+                      <ProtectedRoute>
+                        <VehiclesPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  {hasEmailAuth() && (
+                    <>
+                      <Route
+                        path="/login"
+                        element={
+                          <PublicRoute>
+                            <LoginPage />
+                          </PublicRoute>
+                        }
+                      />
 
-                    <Route
-                      path="/signup"
-                      element={
-                        <PublicRoute>
-                          <SignupPage />
-                        </PublicRoute>
-                      }
-                    />
-                  </>
-                )}
-                <Route path="/about" element={<About />} />
-                <Route path="/contact" element={<Contact />} />
-                <Route path="/terms" element={<Terms />} />
-                <Route path="/privacy" element={<Privacy />} />
-              </Route>
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+                      <Route
+                        path="/signup"
+                        element={
+                          <PublicRoute>
+                            <SignupPage />
+                          </PublicRoute>
+                        }
+                      />
+                    </>
+                  )}
+                  <Route
+                    path="/confirm-age"
+                    element={
+                      <ProtectedRoute>
+                        <ConfirmAgePage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route path="/about" element={<About />} />
+                  <Route path="/contact" element={<Contact />} />
+                  <Route path="/terms" element={<Terms />} />
+                  <Route path="/privacy" element={<Privacy />} />
+                </Route>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </AgeGate>
           </AuthProvider>
         </BrowserRouter>
       </TooltipProvider>
