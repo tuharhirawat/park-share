@@ -6,6 +6,7 @@ namespace ParkMitra_BE.Services
     {
         private const string AccessTokenCookieName = "access_token";
         private const string RefreshTokenCookieName = "refresh_token";
+        private const string AdminAccessTokenCookieName = "admin_access_token";
 
         /// <summary>
         /// Creates a consistent set of cookie options for both authentication
@@ -48,6 +49,17 @@ namespace ParkMitra_BE.Services
                     DateTimeOffset.UtcNow.AddDays(30)));
         }
 
+        public void SetAdminAuthCookie(HttpResponse response, string accessToken, int expiresIn)
+        {
+            // Admin sessions have no refresh token, so the admin signs in again when this expires.
+            response.Cookies.Append(
+                AdminAccessTokenCookieName,
+                accessToken,
+                CreateCookieOptions(
+                    response.HttpContext,
+                    DateTimeOffset.UtcNow.AddSeconds(expiresIn)));
+        }
+
         public void ClearAuthCookies(HttpResponse response)
         {
             // Expire the cookies using the same options that were used to create
@@ -64,5 +76,16 @@ namespace ParkMitra_BE.Services
                 string.Empty,
                 CreateCookieOptions(response.HttpContext, expired));
         }
+
+        public void ClearAdminAuthCookie(HttpResponse response)
+        {
+            response.Cookies.Append(
+                AdminAccessTokenCookieName,
+                string.Empty,
+                CreateCookieOptions(response.HttpContext, DateTimeOffset.UnixEpoch));
+        }
+
+        public string? GetAdminAccessToken(HttpRequest request)
+            => request.Cookies[AdminAccessTokenCookieName];
     }
 }
