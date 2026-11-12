@@ -153,6 +153,17 @@ namespace ParkMitra_BE.Services
                 };
             }
 
+            // TODO(USER-SIDE): Block suspended users across the customer app (login, refresh, every
+            // request). For now this only stops new password logins.
+            if (string.Equals(currentUser.CurrentStatus, "BLOCKED", StringComparison.OrdinalIgnoreCase))
+            {
+                return new AuthenticationResponseDto
+                {
+                    Success = false,
+                    Message = "Your account has been suspended. Please contact support."
+                };
+            }
+
             return new AuthenticationResponseDto
             {
                 Success = true,

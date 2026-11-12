@@ -46,6 +46,11 @@ public class Program
         builder.Services.AddScoped<PricingService>();
         builder.Services.AddScoped<LocationService>();
 
+        // Admin Services
+        builder.Services.AddScoped<AdminAuthorizationService>();
+        builder.Services.AddScoped<AdminUserService>();
+        builder.Services.AddScoped<AdminBookingService>();
+
         builder.Services.AddMemoryCache();
         builder.Services.AddSingleton<ICodeVerifierStore, MemoryCodeVerifierStore>();
 
