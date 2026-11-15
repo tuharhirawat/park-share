@@ -24,6 +24,8 @@ public partial class booking
 
     public DateTime created_at { get; set; }
 
+    public bool is_created_by_admin { get; set; }
+
     public DateTime updated_at { get; set; }
 
     public DateOnly? booking_date { get; set; }

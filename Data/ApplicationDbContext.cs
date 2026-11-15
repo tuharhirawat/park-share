@@ -117,6 +117,7 @@ public partial class ApplicationDbContext : DbContext
 
             entity.Property(e => e.id).HasDefaultValueSql("gen_random_uuid()");
             entity.Property(e => e.created_at).HasDefaultValueSql("now()");
+            entity.Property(e => e.is_created_by_admin).HasDefaultValue(false);
             entity.Property(e => e.expires_at).HasColumnType("timestamp without time zone");
             entity.Property(e => e.free_extension_minutes_used)
                 .HasDefaultValue(0)
@@ -131,7 +132,7 @@ public partial class ApplicationDbContext : DbContext
             entity.Property(e => e.original_start_time)
                 .HasComment("Initial booking start timestamp. Never update after creation.")
                 .HasColumnType("timestamp without time zone");
-            entity.Property(e => e.status).HasDefaultValueSql("'confirmed'::text");
+            entity.Property(e => e.status);
             entity.Property(e => e.updated_at).HasDefaultValueSql("now()");
             entity.Property(e => e.vehicle_type).HasDefaultValueSql("'car'::text");
 

@@ -20,6 +20,7 @@ namespace ParkMitra_BE.DTOs.Booking
         public TimeOnly? StartTime { get; set; }
         public TimeOnly? EndTime { get; set; }
         public DateTime CreatedAt { get; set; }
+        public bool IsCreatedByAdmin { get; set; }
         public VehicleType? VehicleType { get; set; }
         public Guid? VehicleId { get; set; }
         public string? VehicleNumber { get; set; }

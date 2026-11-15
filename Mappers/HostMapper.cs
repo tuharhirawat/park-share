@@ -40,10 +40,9 @@ namespace ParkMitra_BE.Mappers
             StartTime = b.start_time,
             EndTime = b.end_time,
             CreatedAt = b.created_at,
+            IsCreatedByAdmin = b.is_created_by_admin,
             VehicleType = b.vehicle_type,
-            SlotLabel = b.slot_id.HasValue && slotLabelById.TryGetValue(b.slot_id.Value, out var label)
-        ? label
-        : null
+            SlotLabel = b.slot_id.HasValue && slotLabelById.TryGetValue(b.slot_id.Value, out var label) ? label : null
         };
 
         public static HostSlotDto MapSlot(parking_slot s) => new()

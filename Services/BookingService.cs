@@ -140,6 +140,7 @@ namespace ParkMitra_BE.Services
                 total_price = pricing.TotalPayable,
                 status = BookingStatus.Pending,
                 created_at = DateTime.UtcNow,
+                is_created_by_admin = false,
                 updated_at = DateTime.UtcNow,
                 booking_date = dto.BookingDate,
                 start_time = dto.StartTime,
@@ -202,6 +203,7 @@ namespace ParkMitra_BE.Services
                 .Where(b => b.user_id == userId)
                 .Where(b => b.status == BookingStatus.Confirmed || b.status == BookingStatus.Cancelled)
                 .Include(b => b.space)
+                .Include(b => b.vehicle)
                 .OrderByDescending(b => b.created_at)
                 .ToListAsync();
 
@@ -298,7 +300,10 @@ namespace ParkMitra_BE.Services
                     StartTime = b.start_time,
                     EndTime = b.end_time,
                     CreatedAt = b.created_at,
+                    IsCreatedByAdmin = b.is_created_by_admin,
                     VehicleId = b.vehicle_id,
+                    VehicleType = b.vehicle_type,
+                    VehicleNumber = b.vehicle?.registration_number,
                     SlotId = b.slot_id,
                     HasUsedFreeExtension = b.has_used_free_extension,
                     FreeExtensionMinutesUsed = b.free_extension_minutes_used
@@ -521,14 +526,34 @@ namespace ParkMitra_BE.Services
                 .FirstOrDefaultAsync(s => s.id == spaceId && s.user_id == userId);
 
             if (space == null)
-                return new PagedResultDto<HostBookingDto> { Page = page, PageSize = pageSize };
+            {
+                return new PagedResultDto<HostBookingDto>
+                {
+                    Items = new List<HostBookingDto>(),
+                    TotalCount = 0,
+                    Page = page,
+                    PageSize = pageSize
+                };
+            }
 
             page = Math.Max(1, page);
             pageSize = Math.Clamp(pageSize, 1, 50);
 
-            var query = _context.bookings.Where(b => b.space_id == spaceId);
-            if (fromDate.HasValue) query = query.Where(b => b.booking_date >= fromDate.Value);
-            if (toDate.HasValue) query = query.Where(b => b.booking_date <= toDate.Value);
+            var query = _context.bookings
+                .Where(b =>
+                    b.space_id == spaceId &&
+                    (b.status == BookingStatus.Confirmed ||
+                     b.status == BookingStatus.Cancelled));
+
+            if (fromDate.HasValue)
+            {
+                query = query.Where(b => b.booking_date >= fromDate.Value);
+            }
+
+            if (toDate.HasValue)
+            {
+                query = query.Where(b => b.booking_date <= toDate.Value);
+            }
 
             var candidates = await query.ToListAsync();
 
@@ -536,9 +561,15 @@ namespace ParkMitra_BE.Services
                 .Where(b => BookingStatusCalculator.Compute(b, space.timezone) == status)
                 .ToList();
 
-            matching = sort == "oldest"
-                ? matching.OrderBy(b => b.booking_date).ThenBy(b => b.start_time).ToList()
-                : matching.OrderByDescending(b => b.booking_date).ThenByDescending(b => b.start_time).ToList();
+            matching = sort.Equals("oldest", StringComparison.OrdinalIgnoreCase)
+                ? matching
+                    .OrderBy(b => b.booking_date)
+                    .ThenBy(b => b.start_time)
+                    .ToList()
+                : matching
+                    .OrderByDescending(b => b.booking_date)
+                    .ThenByDescending(b => b.start_time)
+                    .ToList();
 
             var totalCount = matching.Count;
 
@@ -547,14 +578,26 @@ namespace ParkMitra_BE.Services
                 .Take(pageSize)
                 .ToList();
 
-            var slotIds = pageBookings.Where(b => b.slot_id.HasValue).Select(b => b.slot_id!.Value).Distinct().ToList();
+            var slotIds = pageBookings
+                .Where(b => b.slot_id.HasValue)
+                .Select(b => b.slot_id!.Value)
+                .Distinct()
+                .ToList();
+
             var slotLabelById = await _context.parking_slots
                 .Where(s => slotIds.Contains(s.id))
                 .ToDictionaryAsync(s => s.id, s => s.label);
 
             return new PagedResultDto<HostBookingDto>
             {
-                Items = pageBookings.Select(b => HostMapper.MapBooking(b, slotLabelById, space.timezone)).ToList(),
+                Items = pageBookings
+                    .Select(b =>
+                        HostMapper.MapBooking(
+                            b,
+                            slotLabelById,
+                            space.timezone))
+                    .ToList(),
+
                 TotalCount = totalCount,
                 Page = page,
                 PageSize = pageSize
@@ -562,10 +605,10 @@ namespace ParkMitra_BE.Services
         }
 
         public async Task<BookingStatusCountsDto> GetBookingsCountBySpaceIdAsync(
-            Guid userId,
-            Guid spaceId,
-            DateOnly? fromDate,
-            DateOnly? toDate)
+    Guid userId,
+    Guid spaceId,
+    DateOnly? fromDate,
+    DateOnly? toDate)
         {
             var space = await _context.parking_spaces
                 .FirstOrDefaultAsync(s => s.id == spaceId && s.user_id == userId);
@@ -573,16 +616,31 @@ namespace ParkMitra_BE.Services
             if (space == null)
                 return new BookingStatusCountsDto();
 
-            var query = _context.bookings.Where(b => b.space_id == spaceId);
-            if (fromDate.HasValue) query = query.Where(b => b.booking_date >= fromDate.Value);
-            if (toDate.HasValue) query = query.Where(b => b.booking_date <= toDate.Value);
+            var query = _context.bookings
+                .Where(b =>
+                    b.space_id == spaceId &&
+                    (b.status == BookingStatus.Confirmed ||
+                     b.status == BookingStatus.Cancelled));
+
+            if (fromDate.HasValue)
+            {
+                query = query.Where(b => b.booking_date >= fromDate.Value);
+            }
+
+            if (toDate.HasValue)
+            {
+                query = query.Where(b => b.booking_date <= toDate.Value);
+            }
 
             var candidates = await query.ToListAsync();
 
             var counts = new BookingStatusCountsDto();
-            foreach (var b in candidates)
+
+            foreach (var booking in candidates)
             {
-                switch (BookingStatusCalculator.Compute(b, space.timezone))
+                var computedStatus = BookingStatusCalculator.Compute(booking, space.timezone);
+
+                switch (computedStatus)
                 {
                     case ComputedBookingStatus.Upcoming: counts.Upcoming++; break;
                     case ComputedBookingStatus.Active: counts.Active++; break;
@@ -593,7 +651,6 @@ namespace ParkMitra_BE.Services
 
             return counts;
         }
-
 
         public async Task<ApiResponseDto> CancelAsync(Guid userId, Guid bookingId)
         {

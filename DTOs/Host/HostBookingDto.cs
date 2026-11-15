@@ -11,6 +11,7 @@ namespace ParkMitra_BE.DTOs.Host
         public TimeOnly? StartTime { get; set; }
         public TimeOnly? EndTime { get; set; }
         public DateTime CreatedAt { get; set; }
+        public bool IsCreatedByAdmin { get; set; }
         public VehicleType? VehicleType { get; set; }
         public string? SlotLabel { get; set; }
     }
