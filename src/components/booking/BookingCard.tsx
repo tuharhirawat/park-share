@@ -38,10 +38,10 @@ const BookingCard = ({
   const cancelledBooking = booking.status === "Cancelled";
 
   return (
-    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-      <div className="space-y-3 flex-1">
-        <div className="flex items-center gap-3 flex-wrap">
-          <h3 className="font-display font-bold text-foreground text-lg">
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+        <div className="flex items-center gap-3 flex-wrap min-w-0">
+          <h3 className="font-display font-bold text-foreground text-lg break-words">
             {booking.spaceTitle}
           </h3>
 
@@ -66,56 +66,77 @@ const BookingCard = ({
           )}
         </div>
 
-        <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <MapPin className="w-4 h-4" />
-            {booking.spaceAddress}
-          </span>
-
-          {booking.bookingDate && (
-            <span className="flex items-center gap-1">
-              <Calendar className="w-4 h-4" />
-              {format(parseISO(booking.bookingDate), "MMM d, yyyy")}
-            </span>
-          )}
-
-          <span className="flex items-center gap-1">
-            <Clock className="w-4 h-4" />
-            {displayTime(booking.startTime)} –{" "}
-            {displayTime(booking.endTime)}
-          </span>
-
-          <span className="flex items-center gap-1">
-            <Clock className="w-4 h-4" />
-            {formatDuration(booking.durationMinutes)}
-          </span>
-        </div>
-
-        <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-          {booking.vehicleType && (
-            <span className="flex items-center gap-1">
-              {booking.vehicleType.toLowerCase() === "bike" ? (
-                <Bike className="w-4 h-4" />
-              ) : (
-                <Car className="w-4 h-4" />
-              )}
-
-              <span className="capitalize">
-                {booking.vehicleNumber}
-              </span>
-            </span>
-          )}
-
-          {booking.slotLabel && (
-            <span className="flex items-center gap-1">
-              {booking.slotLabel}
-            </span>
-          )}
-        </div>
+        {booking.isCreatedByAdmin && (
+          <Badge
+            variant="outline"
+            className="
+              self-start
+              shrink-0
+              border-primary/40
+              text-primary
+              text-xs
+              whitespace-nowrap
+            "
+          >
+            Created by admin
+          </Badge>
+        )}
       </div>
 
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-lg font-bold text-foreground">
+      <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+        <span className="flex items-center gap-1 min-w-0">
+          <MapPin className="w-4 h-4 shrink-0" />
+          <span className="break-words">
+            {booking.spaceAddress}
+          </span>
+        </span>
+
+        {booking.bookingDate && (
+          <span className="flex items-center gap-1 whitespace-nowrap">
+            <Calendar className="w-4 h-4 shrink-0" />
+            {format(
+              parseISO(booking.bookingDate),
+              "MMM d, yyyy"
+            )}
+          </span>
+        )}
+
+        <span className="flex items-center gap-1 whitespace-nowrap">
+          <Clock className="w-4 h-4 shrink-0" />
+          {displayTime(booking.startTime)} –{" "}
+          {displayTime(booking.endTime)}
+        </span>
+
+        <span className="flex items-center gap-1 whitespace-nowrap">
+          <Clock className="w-4 h-4 shrink-0" />
+          {formatDuration(booking.durationMinutes)}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+        {booking.vehicleType && (
+          <span className="flex items-center gap-1">
+            {booking.vehicleType.toLowerCase() === "bike" ? (
+              <Bike className="w-4 h-4 shrink-0" />
+            ) : (
+              <Car className="w-4 h-4 shrink-0" />
+            )}
+
+            <span className="capitalize">
+              {booking.vehicleNumber || booking.vehicleType}
+            </span>
+          </span>
+        )}
+
+        {booking.slotLabel && (
+          <span className="flex items-center gap-1">
+            {booking.slotLabel}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-lg font-bold text-foreground mr-auto">
           ₹{booking.totalPrice}
         </span>
 

@@ -24,6 +24,7 @@ export type Booking = {
   startTime: string | null;
   endTime: string | null;
   createdAt: string;
+  isCreatedByAdmin: boolean;
   vehicleType: string;
   vehicleId: string | null;
   vehicleNumber: string | null;
